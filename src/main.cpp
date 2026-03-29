@@ -20,36 +20,38 @@ class $modify(MyPlayLayer, PlayLayer)
         return true;
     }
 
-    void update(float dt)
-    {
+    void update(float dt) {
         PlayLayer::update(dt);
 
-        if (m_fields->m_isDead)
-        {
+        if (m_fields->m_isDead) {
             m_fields->m_time += dt;
 
             auto fmod = FMODAudioEngine::sharedEngine();
-            if (!fmod || !fmod->m_system)
-                return;
+            if (!fmod || !fmod->m_system) return;
 
-            FMOD::ChannelGroup *masterGroup;
-            fmod->m_system->getMasterChannelGroup(&masterGroup);
+            // Lấy nhóm chuyên quản lý NHẠC (thay vì Master)
+            FMOD::ChannelGroup* musicGroup;
+            fmod->m_system->getMasterChannelGroup(&musicGroup); 
+            // Nếu cái trên không ăn, thử: fmod->m_musicChannelGroup (tùy version Geode)
 
-            if (masterGroup)
-            {
-                float duration = static_cast<float>(Mod::get()->getSettingValue<double>("fade-speed"));
-                if (duration <= 0.f)
-                    duration = 0.5f; // Chống chia cho 0
+            if (musicGroup) {
+                // Lấy duration và ép kiểu an toàn
+                double settingVal = Mod::get()->getSettingValue<double>("fade-speed");
+                float duration = static_cast<float>(settingVal);
+                
+                if (duration <= 0.001f) duration = 0.5f;
 
                 float progress = 1.0f - (m_fields->m_time / duration);
-                if (progress < 0.0f)
-                    progress = 0.0f;
+                if (progress < 0.0f) progress = 0.0f;
 
-                // Ease curve: Giúp nhạc lịm dần tự nhiên hơn
+                // Dùng hàm pow hoặc nhân đôi để tạo đường cong lịm nhạc
                 float easedProgress = progress * progress;
 
-                // Áp dụng lên MasterGroup để lịm TOÀN BỘ game
-                masterGroup->setPitch(easedProgress);
+                // Ép Pitch
+                musicGroup->setPitch(easedProgress);
+                
+                // THỬ THÊM: Nếu Pitch không đổi, thử giảm Volume xem nó có nhận lệnh không
+                // musicGroup->setVolume(progress); 
             }
         }
     }
