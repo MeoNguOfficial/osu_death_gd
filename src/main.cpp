@@ -5,15 +5,14 @@
 using namespace geode::prelude;
 
 class $modify(MyPlayLayer, PlayLayer) {
-    // ĐÂY LÀ CÁCH SET PRIORITY CHUẨN:
-    // Chạy sau các mod khác (như Mega Hack) để không bị ghi đè biến
-    static inline int priority = -100;
+    // Ép ưu tiên cực cao để chạy TRƯỚC các mod khác
+    static inline int priority = 999999; 
 
     struct Fields {
         bool m_isDead = false;
         float m_time = 0.0f;
         int m_actionTag = 1001;
-        bool m_hasStarted = false; 
+        float m_initialCooldown = 0.0f;
     };
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
@@ -21,21 +20,26 @@ class $modify(MyPlayLayer, PlayLayer) {
         
         m_fields->m_isDead = false;
         m_fields->m_time = 0.0f;
-        m_fields->m_hasStarted = true;
+        m_fields->m_initialCooldown = 0.0f;
         
         this->cleanupOsuEffect();
         return true;
     }
 
+    void update(float dt) {
+        PlayLayer::update(dt);
+        m_fields->m_initialCooldown += dt;
+    }
+
     void applyOsuPitch() {
-        if (!m_fields->m_isDead || !m_fields->m_hasStarted) {
+        // Chỉ chạy khi thực sự đang ở trong PlayLayer
+        if (!m_fields->m_isDead || !GameManager::sharedEngine()->getPlayLayer()) {
             this->stopActionByTag(m_fields->m_actionTag);
             return;
         }
 
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod && fmod->m_backgroundMusicChannel) {
-            // Lấy setting an toàn hơn
             auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
             float duration = static_cast<float>(speedValue);
             if (duration <= 0.01f) duration = 1.0f;
@@ -48,42 +52,43 @@ class $modify(MyPlayLayer, PlayLayer) {
                 this->stopActionByTag(m_fields->m_actionTag);
             }
 
-            float finalPitch = progress * progress;
+            float finalPitch = std::clamp(progress * progress, 0.0f, 1.0f);
             fmod->m_backgroundMusicChannel->setPitch(finalPitch);
-            
-            if (fmod->m_globalChannel) {
-                fmod->m_globalChannel->setPitch(finalPitch);
-            }
+            if (fmod->m_globalChannel) fmod->m_globalChannel->setPitch(finalPitch);
         }
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        if (m_fields->m_hasStarted && !m_fields->m_isDead) {
-            m_fields->m_isDead = true;
-            m_fields->m_time = 0.0f;
-
-            this->stopActionByTag(m_fields->m_actionTag);
-
-            auto delay = CCDelayTime::create(1.0f / 60.0f);
-            auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
-            auto seq = CCSequence::create(delay, call, nullptr);
-            auto repeat = CCRepeatForever::create(seq);
-            repeat->setTag(m_fields->m_actionTag);
+        // KIỂM TRA TỐI THƯỢNG:
+        // 1. Màn chơi phải chạy được ít nhất 0.5 giây (loại bỏ trigger lúc load)
+        // 2. Phải thực sự đang trong trạng thái chơi (không phải menu/randomizer gọi)
+        if (m_fields->m_initialCooldown > 0.5f && !m_fields->m_isDead) {
             
-            this->runAction(repeat);
-            log::info("Osu Death triggered!");
+            // Một số mod gọi destroyPlayer nhưng không làm chết player thật
+            // Ta kiểm tra xem player thực sự có đang nổ tung không
+            if (player->m_isDead) { 
+                m_fields->m_isDead = true;
+                m_fields->m_time = 0.0f;
+
+                this->stopActionByTag(m_fields->m_actionTag);
+
+                auto delay = CCDelayTime::create(1.0f / 60.0f);
+                auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
+                auto seq = CCSequence::create(delay, call, nullptr);
+                auto repeat = CCRepeatForever::create(seq);
+                repeat->setTag(m_fields->m_actionTag);
+                
+                this->runAction(repeat);
+                log::info("Osu Death triggered hop le tai {:.2f}s", m_fields->m_initialCooldown);
+            }
         }
         PlayLayer::destroyPlayer(player, obj);
     }
 
     void resetLevel() {
         this->cleanupOsuEffect();
+        m_fields->m_initialCooldown = 0.0f;
         PlayLayer::resetLevel();
-    }
-
-    void onQuit() {
-        this->cleanupOsuEffect();
-        PlayLayer::onQuit();
     }
 
     void cleanupOsuEffect() {
@@ -94,9 +99,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod && fmod->m_backgroundMusicChannel) {
             fmod->m_backgroundMusicChannel->setPitch(1.0f);
-            if (fmod->m_globalChannel) {
-                fmod->m_globalChannel->setPitch(1.0f);
-            }
+            if (fmod->m_globalChannel) fmod->m_globalChannel->setPitch(1.0f);
         }
     }
 };
