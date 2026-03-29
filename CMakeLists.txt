@@ -1,7 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 
-# Thêm dòng này để CMake biết tìm Geode ở đâu trong môi trường GitHub
-set(GEODE_DIR $ENV{GEODE_SDK})
+# Force CMake to find Geode in the environment path set by the Action
+if(NOT DEFINED Geode_DIR AND DEFINED ENV{GEODE_SDK})
+    set(Geode_DIR "$ENV{GEODE_SDK}")
+endif()
 
 project(OsuDeathMod)
 
