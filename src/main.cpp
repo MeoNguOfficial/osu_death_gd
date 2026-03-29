@@ -20,38 +20,32 @@ class $modify(MyPlayLayer, PlayLayer)
         return true;
     }
 
-    void update(float dt) {
+    void update(float dt)
+    {
         PlayLayer::update(dt);
 
-        if (m_fields->m_isDead) {
+        if (m_fields->m_isDead)
+        {
             m_fields->m_time += dt;
 
             auto fmod = FMODAudioEngine::sharedEngine();
-            if (!fmod || !fmod->m_system) return;
-
-            // Lấy nhóm chuyên quản lý NHẠC (thay vì Master)
-            FMOD::ChannelGroup* musicGroup;
-            fmod->m_system->getMasterChannelGroup(&musicGroup); 
-            // Nếu cái trên không ăn, thử: fmod->m_musicChannelGroup (tùy version Geode)
-
-            if (musicGroup) {
-                // Lấy duration và ép kiểu an toàn
-                double settingVal = Mod::get()->getSettingValue<double>("fade-speed");
-                float duration = static_cast<float>(settingVal);
-                
-                if (duration <= 0.001f) duration = 0.5f;
+            if (fmod)
+            {
+                float duration = static_cast<float>(Mod::get()->getSettingValue<double>("fade-speed"));
+                if (duration <= 0.01f)
+                    duration = 0.5f;
 
                 float progress = 1.0f - (m_fields->m_time / duration);
-                if (progress < 0.0f) progress = 0.0f;
+                if (progress < 0.0f)
+                    progress = 0.0f;
 
-                // Dùng hàm pow hoặc nhân đôi để tạo đường cong lịm nhạc
-                float easedProgress = progress * progress;
+                // Dùng hàm này để ép toàn bộ game chậm lại và nhạc méo theo
+                // Đây là cách Megahack và các mod Speedhack hay dùng
+                fmod->setTargetPitch(progress * progress);
 
-                // Ép Pitch
-                musicGroup->setPitch(easedProgress);
-                
-                // THỬ THÊM: Nếu Pitch không đổi, thử giảm Volume xem nó có nhận lệnh không
-                // musicGroup->setVolume(progress); 
+                // Dòng này để Mèo check trong Console (Phím ~)
+                // Nếu hẻo mà thấy dòng này hiện ra là mod ĐÃ CHẠY
+                log::info("Osu Pitch: {}", progress);
             }
         }
     }
