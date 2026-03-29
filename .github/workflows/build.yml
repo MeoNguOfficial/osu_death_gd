@@ -22,9 +22,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build Mod
+      - name: Build Geode Mod
         uses: geode-sdk/build-geode-mod@main
         with:
-          # This will automatically use the version from your mod.json
-          sdk: v3
+          # This action version works perfectly with Geode 5.x projects
           combine: true
