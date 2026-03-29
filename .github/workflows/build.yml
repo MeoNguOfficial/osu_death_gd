@@ -17,7 +17,7 @@ jobs:
       - name: Setup Geode SDK
         uses: geode-sdk/setup-geode@v2
 
-      # BƯỚC 2: Sau đó mới chạy lệnh build
+      # BƯỚC 2: Sau đó mới chạy lệnh build để build mod
       - name: Build Mod
         uses: geode-sdk/build-geode-mod@main
         with:
