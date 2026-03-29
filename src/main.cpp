@@ -19,36 +19,44 @@ class $modify(MyPlayLayer, PlayLayer) {
     void update(float dt) {
         PlayLayer::update(dt);
 
-        if (m_fields->m_isDead) {
-            m_fields->m_time += dt;
-            
-            auto fmod = FMODAudioEngine::sharedEngine();
-            if (!fmod) return;
+        if (!m_fields->m_isDead) return;
 
-            FMOD::ChannelGroup* masterGroup;
-            fmod->m_system->getMasterChannelGroup(&masterGroup);
+        m_fields->m_time += dt;
 
-            if (masterGroup) {
-                // duration chỉnh trong setting (ví dụ 0.5s hoặc 1.0s)
-                float duration = Mod::get()->getSettingValue<double>("fade-speed");
-                
-                // Tính toán tiến trình từ 1.0 về 0.0 dựa trên duration
-                // Progress = 1.0 - (Thời gian đã trôi qua / Tổng thời gian)
-                float progress = 1.0f - (m_fields->m_time / duration);
-                
-                if (progress < 0.0f) progress = 0.0f;
+        auto fmod = FMODAudioEngine::sharedEngine();
+        if (!fmod || !fmod->m_backgroundMusicChannel) return;
 
-                // Cập nhật Pitch
-                masterGroup->setPitch(progress);
-                
-                // Nếu muốn mượt hơn nữa (dạng curve), Mèo có thể dùng:
-                // masterGroup->setPitch(progress * progress);
-            }
+        auto music = fmod->m_backgroundMusicChannel;
+
+        // ⚠️ tránh chia 0
+        float duration = std::max(0.01f,
+            (float)Mod::get()->getSettingValue<double>("fade-speed")
+        );
+
+        // ⏱ progress từ 1 -> 0
+        float progress = 1.0f - (m_fields->m_time / duration);
+        progress = std::clamp(progress, 0.0f, 1.0f);
+
+        // 🎯 easing giống osu (quan trọng)
+        float eased = progress * progress;              // basic ease-out
+        // float eased = pow(progress, 2.5f);           // mạnh hơn nếu muốn
+
+        // 🎵 APPLY EFFECT
+        music->setPitch(eased);
+
+        // 🔉 giảm volume cùng lúc (rất giống osu)
+        music->setVolume(eased);
+
+        // 🛑 tránh pitch = 0 (FMOD dễ glitch)
+        if (eased <= 0.01f) {
+            music->setPitch(0.01f);
+            music->setVolume(0.0f);
         }
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
         PlayLayer::destroyPlayer(player, obj);
+
         if (!m_fields->m_isDead) {
             m_fields->m_isDead = true;
             m_fields->m_time = 0.0f;
@@ -56,14 +64,14 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void resetLevel() {
-        // Reset Pitch về 1.0 ngay lập tức trước khi reset màn
         auto fmod = FMODAudioEngine::sharedEngine();
-        if (fmod) {
-            FMOD::ChannelGroup* masterGroup;
-            fmod->m_system->getMasterChannelGroup(&masterGroup);
-            if (masterGroup) {
-                masterGroup->setPitch(1.0f);
-            }
+
+        if (fmod && fmod->m_backgroundMusicChannel) {
+            auto music = fmod->m_backgroundMusicChannel;
+
+            // 🔄 reset audio về bình thường
+            music->setPitch(1.0f);
+            music->setVolume(1.0f);
         }
 
         m_fields->m_isDead = false;
