@@ -7,11 +7,17 @@ using namespace geode::prelude;
 class $modify(MyPlayLayer, PlayLayer) {
     struct Fields {
         bool m_isDead = false;
-        float m_currentPitch = 1.0f;
+        float m_time = 0.0f;
+        float m_ogMusicVolume = 1.0f;
     };
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
         if (!PlayLayer::init(level, useReplay, dontRun)) return false;
+        
+        auto fmod = FMODAudioEngine::sharedEngine();
+        // Lưu lại volume gốc để trả về cho chuẩn
+        m_fields->m_ogMusicVolume = fmod->m_backgroundMusicVolume;
+        
         this->scheduleUpdate();
         return true;
     }
@@ -19,45 +25,52 @@ class $modify(MyPlayLayer, PlayLayer) {
     void update(float dt) {
         PlayLayer::update(dt);
 
-        if (m_fields->m_isDead && m_fields->m_currentPitch > 0.0f) {
-            auto engine = FMODAudioEngine::sharedEngine();
-            if (engine && engine->m_system) {
-                FMOD::ChannelGroup* masterGroup;
-                engine->m_system->getMasterChannelGroup(&masterGroup);
-                if (masterGroup) {
-                    // Lấy giá trị từ Setting mà Mèo chỉnh trong game
-                    float fadeSpeed = Mod::get()->getSettingValue<double>("fade-speed");
-                    
-                    m_fields->m_currentPitch -= dt * fadeSpeed;
-                    if (m_fields->m_currentPitch < 0.0f) m_fields->m_currentPitch = 0.0f;
-                    
-                    masterGroup->setPitch(m_fields->m_currentPitch);
-                }
+        if (m_fields->m_isDead) {
+            m_fields->m_time += dt;
+            
+            auto fmod = FMODAudioEngine::sharedEngine();
+            if (!fmod) return;
+
+            // Lấy Master Group để chỉnh Pitch
+            FMOD::ChannelGroup* masterGroup;
+            fmod->m_system->getMasterChannelGroup(&masterGroup);
+
+            if (masterGroup) {
+                // MainProgress: Giảm dần về 0 trong khoảng 1 giây (hoặc chỉnh theo setting)
+                float fadeSpeed = Mod::get()->getSettingValue<double>("fade-speed");
+                float progress = std::max(1.0f - (m_fields->m_time * fadeSpeed), 0.0f);
+                
+                // 1. Chỉnh Pitch (Trầm dần)
+                masterGroup->setPitch(progress);
+                
+                // 2. Chỉnh Volume (Nhỏ dần - cho giống cái FadeOut ví dụ của Mèo)
+                // fmod->m_backgroundMusicChannel->setVolume(m_fields->m_ogMusicVolume * progress);
             }
         }
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
         PlayLayer::destroyPlayer(player, obj);
-        // Kích hoạt hiệu ứng ngay sau khi nổ xác
         if (!m_fields->m_isDead) {
             m_fields->m_isDead = true;
+            m_fields->m_time = 0.0f;
         }
     }
 
     void resetLevel() {
-        PlayLayer::resetLevel();
-
-        m_fields->m_isDead = false;
-        m_fields->m_currentPitch = 1.0f;
-
-        auto engine = FMODAudioEngine::sharedEngine();
-        if (engine) {
+        // Reset âm thanh về trạng thái ban đầu NGAY LẬP TỨC
+        auto fmod = FMODAudioEngine::sharedEngine();
+        if (fmod) {
             FMOD::ChannelGroup* masterGroup;
-            engine->m_system->getMasterChannelGroup(&masterGroup);
+            fmod->m_system->getMasterChannelGroup(&masterGroup);
             if (masterGroup) {
                 masterGroup->setPitch(1.0f);
             }
         }
+
+        m_fields->m_isDead = false;
+        m_fields->m_time = 0.0f;
+
+        PlayLayer::resetLevel();
     }
 };
