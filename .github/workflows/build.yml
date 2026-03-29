@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-# Temp
+
 jobs:
   build:
     name: Build
@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # BƯỚC 1: Phải cài đặt SDK trước
+      - name: Setup Geode SDK
+        uses: geode-sdk/setup-geode@v2
+
+      # BƯỚC 2: Sau đó mới chạy lệnh build
       - name: Build Mod
         uses: geode-sdk/build-geode-mod@main
         with:
