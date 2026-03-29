@@ -1,22 +1,43 @@
-// Osu!Death Geode mod - PlayerObject modification code
+#include <Geode/Geode.hpp>
+#include <Geode/modify/PlayerObject.hpp>
+#include <Geode/modify/PlayLayer.hpp>
+#include <Geode/binding/FMODAudioEngine.hpp>
 
-#include <iostream>
-#include <vector>
+using namespace geode::prelude;
 
-class PlayerObject {
-public:
-    PlayerObject() {
-        // Initialization code
-    }
+// Hook PlayerObject to catch the death event
+class $modify(MyPlayer, PlayerObject) {
+    // GD 2.208 uses one bool parameter for playerDestroyed
+    void playerDestroyed(bool p0) { 
+        PlayerObject::playerDestroyed(p0);
 
-    void modify() {
-        // PlayerObject modification logic
-        std::cout << "Modifying PlayerObject..." << std::endl;
+        auto pitchVal = static_cast<float>(Mod::get()->getSettingValue<double>("death-pitch"));
+        auto engine = FMODAudioEngine::sharedEngine();
+        
+        if (engine && engine->m_pMusicChannel) {
+            // Instantly apply the pitch down effect
+            engine->m_pMusicChannel->setPitch(pitchVal);
+        }
     }
 };
 
-int main() {
-    PlayerObject player;
-    player.modify();
-    return 0;
-}
+// Hook PlayLayer to reset music state
+class $modify(MyPlayLayer, PlayLayer) {
+    // Reset pitch when restarting the level
+    void resetLevel() {
+        PlayLayer::resetLevel();
+        auto engine = FMODAudioEngine::sharedEngine();
+        if (engine && engine->m_pMusicChannel) {
+            engine->m_pMusicChannel->setPitch(1.0f);
+        }
+    }
+
+    // Reset pitch when leaving to the menu
+    void onQuit() {
+        PlayLayer::onQuit();
+        auto engine = FMODAudioEngine::sharedEngine();
+        if (engine && engine->m_pMusicChannel) {
+            engine->m_pMusicChannel->setPitch(1.0f);
+        }
+    }
+};
