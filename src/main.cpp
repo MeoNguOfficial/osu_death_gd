@@ -16,7 +16,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         
         auto fmod = FMODAudioEngine::sharedEngine();
         // Lưu lại volume gốc để trả về cho chuẩn
-        m_fields->m_ogMusicVolume = fmod->m_backgroundMusicVolume;
+        m_fields->m_ogMusicVolume = 1.0f;
         
         this->scheduleUpdate();
         return true;
