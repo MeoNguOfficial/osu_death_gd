@@ -14,11 +14,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Mod
-        id: build-mod
         uses: geode-sdk/build-geode-mod@main
         with:
           combine: true
-        env:
-          # Ép biến môi trường vào thẳng bước build
-          Geode_DIR: ${{ github.workspace }}/geode-sdk
-          GEODE_SDK: ${{ github.workspace }}/geode-sdk
