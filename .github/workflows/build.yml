@@ -16,7 +16,6 @@ jobs:
             os: windows-latest
 
     name: ${{ matrix.config.name }}
-    runs-proxy: true
     runs-on: ${{ matrix.config.os }}
 
     steps:
