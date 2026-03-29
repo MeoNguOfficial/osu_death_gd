@@ -7,11 +7,24 @@
         "ios": "2.2081"
     },
     "id": "meotn.osudeath_pitch",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "name": "Osu Death Pitch",
     "developer": "Meo",
-    "description": "Applies a pitch shift effect to the music when the player dies, similar to osu!",
+    "description": "The music slows down smoothly when you die, just like in osu!",
     "dependencies": {
         "geode.node-ids": ">=v1.20.0"
+    },
+    "settings": {
+        "fade-speed": {
+            "name": "Fade Duration",
+            "description": "How long it takes for the music to stop (higher = faster).",
+            "type": "float",
+            "default": 2.0,
+            "min": 0.5,
+            "max": 5.0,
+            "control": {
+                "slider": true
+            }
+        }
     }
 }
