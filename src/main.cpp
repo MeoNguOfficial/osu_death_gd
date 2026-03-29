@@ -8,16 +8,10 @@ class $modify(MyPlayLayer, PlayLayer) {
     struct Fields {
         bool m_isDead = false;
         float m_time = 0.0f;
-        float m_ogMusicVolume = 1.0f;
     };
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
         if (!PlayLayer::init(level, useReplay, dontRun)) return false;
-        
-        auto fmod = FMODAudioEngine::sharedEngine();
-        // Lưu lại volume gốc để trả về cho chuẩn
-        m_fields->m_ogMusicVolume = 1.0f;
-        
         this->scheduleUpdate();
         return true;
     }
@@ -31,20 +25,24 @@ class $modify(MyPlayLayer, PlayLayer) {
             auto fmod = FMODAudioEngine::sharedEngine();
             if (!fmod) return;
 
-            // Lấy Master Group để chỉnh Pitch
             FMOD::ChannelGroup* masterGroup;
             fmod->m_system->getMasterChannelGroup(&masterGroup);
 
             if (masterGroup) {
-                // MainProgress: Giảm dần về 0 trong khoảng 1 giây (hoặc chỉnh theo setting)
-                float fadeSpeed = Mod::get()->getSettingValue<double>("fade-speed");
-                float progress = std::max(1.0f - (m_fields->m_time * fadeSpeed), 0.0f);
+                // duration chỉnh trong setting (ví dụ 0.5s hoặc 1.0s)
+                float duration = Mod::get()->getSettingValue<double>("fade-speed");
                 
-                // 1. Chỉnh Pitch (Trầm dần)
+                // Tính toán tiến trình từ 1.0 về 0.0 dựa trên duration
+                // Progress = 1.0 - (Thời gian đã trôi qua / Tổng thời gian)
+                float progress = 1.0f - (m_fields->m_time / duration);
+                
+                if (progress < 0.0f) progress = 0.0f;
+
+                // Cập nhật Pitch
                 masterGroup->setPitch(progress);
                 
-                // 2. Chỉnh Volume (Nhỏ dần - cho giống cái FadeOut ví dụ của Mèo)
-                // fmod->m_backgroundMusicChannel->setVolume(m_fields->m_ogMusicVolume * progress);
+                // Nếu muốn mượt hơn nữa (dạng curve), Mèo có thể dùng:
+                // masterGroup->setPitch(progress * progress);
             }
         }
     }
@@ -58,7 +56,7 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void resetLevel() {
-        // Reset âm thanh về trạng thái ban đầu NGAY LẬP TỨC
+        // Reset Pitch về 1.0 ngay lập tức trước khi reset màn
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod) {
             FMOD::ChannelGroup* masterGroup;
