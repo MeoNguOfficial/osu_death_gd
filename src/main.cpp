@@ -19,33 +19,41 @@ class $modify(MyPlayLayer, PlayLayer) {
     void update(float dt) {
         PlayLayer::update(dt);
 
-        auto engine = FMODAudioEngine::sharedEngine();
-        if (!engine || !engine->m_system) return;
-
-        FMOD::ChannelGroup* masterGroup;
-        engine->m_system->getMasterChannelGroup(&masterGroup);
-        if (!masterGroup) return;
-
+        // Chỉ xử lý giảm pitch nếu đang trong trạng thái hẻo
         if (m_fields->m_isDead) {
-            if (m_fields->m_currentPitch > 0.0f) {
-                // Giảm dần pitch. 2.5f là tốc độ (có thể chỉnh lại)
-                m_fields->m_currentPitch -= dt * 2.5f; 
-                if (m_fields->m_currentPitch < 0.0f) m_fields->m_currentPitch = 0.0f;
-                masterGroup->setPitch(m_fields->m_currentPitch);
+            auto engine = FMODAudioEngine::sharedEngine();
+            if (engine && engine->m_system) {
+                FMOD::ChannelGroup* masterGroup;
+                engine->m_system->getMasterChannelGroup(&masterGroup);
+                if (masterGroup) {
+                    if (m_fields->m_currentPitch > 0.0f) {
+                        m_fields->m_currentPitch -= dt * 2.5f;
+                        if (m_fields->m_currentPitch < 0.0f) m_fields->m_currentPitch = 0.0f;
+                        masterGroup->setPitch(m_fields->m_currentPitch);
+                    }
+                }
             }
         }
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        // Nếu đã chết rồi thì không trigger lại nữa (chặn lỗi lặp âm)
-        if (m_fields->m_isDead) return;
-
+        // LUÔN gọi hàm gốc trước để game xử lý va chạm và nổ xác
         PlayLayer::destroyPlayer(player, obj);
-        m_fields->m_isDead = true;
+
+        // Sau đó mới bật trạng thái méo tiếng (nếu chưa bật)
+        if (!m_fields->m_isDead) {
+            m_fields->m_isDead = true;
+        }
     }
 
     void resetLevel() {
-        // Khi bấm Reset, ngay lập tức ép Pitch về 1.0 để tránh lag âm thanh
+        // Gọi hàm gốc để reset màn chơi
+        PlayLayer::resetLevel();
+
+        // Trả lại âm thanh ngay lập tức
+        m_fields->m_isDead = false;
+        m_fields->m_currentPitch = 1.0f;
+
         auto engine = FMODAudioEngine::sharedEngine();
         if (engine) {
             FMOD::ChannelGroup* masterGroup;
@@ -54,10 +62,5 @@ class $modify(MyPlayLayer, PlayLayer) {
                 masterGroup->setPitch(1.0f);
             }
         }
-
-        m_fields->m_isDead = false;
-        m_fields->m_currentPitch = 1.0f;
-        
-        PlayLayer::resetLevel();
     }
 };
