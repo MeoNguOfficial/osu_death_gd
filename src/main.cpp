@@ -1,13 +1,13 @@
 #include <Geode/Geode.hpp>
 
-// Quan trọng: Phải include đủ các header cho những class bạn muốn hook
+// Include các header cần thiết
 #include <Geode/modify/MenuLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/FMODAudioEngine.hpp>
 
 using namespace geode::prelude;
 
-// --- PHẦN 1: NÚT BẤM Ở MENU (Code cũ của bạn) ---
+// --- PHẦN 1: NÚT BẤM Ở MENU ---
 class $modify(MyMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
@@ -31,16 +31,18 @@ class $modify(MyMenuLayer, MenuLayer) {
     void onMyButton(CCObject*) {
         FLAlertLayer::create("Geode", "Hello from my custom mod!", "OK")->show();
     }
-};
+}; // <--- PHẢI CÓ DẤU CHẤM PHẨY Ở ĐÂY
 
-// --- PHẦN 2: HIỆU ỨNG OSU DEATH (Code làm méo âm thanh) ---
+// --- PHẦN 2: HIỆU ỨNG OSU DEATH ---
 class $modify(MyPlayLayer, PlayLayer) {
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
         PlayLayer::destroyPlayer(player, obj);
 
         // Làm méo nhạc khi hẻo
         auto engine = FMODAudioEngine::sharedEngine();
-        engine->m_system->setPitch(0.35f); 
+        if (engine && engine->m_system) { // Thêm check an toàn để tránh crash
+            engine->m_system->setPitch(0.35f); 
+        }
     }
 
     void resetLevel() {
@@ -48,6 +50,8 @@ class $modify(MyPlayLayer, PlayLayer) {
         
         // Trả nhạc về bình thường khi hồi sinh
         auto engine = FMODAudioEngine::sharedEngine();
-        engine->m_system->setPitch(1.0f);
+        if (engine && engine->m_system) {
+            engine->m_system->setPitch(1.0f);
+        }
     }
-};
+}; // <--- PHẢI CÓ DẤU CHẤM PHẨY Ở ĐÂY
