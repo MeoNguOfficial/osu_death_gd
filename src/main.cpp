@@ -4,87 +4,84 @@
 
 using namespace geode::prelude;
 
-class $modify(MyPlayLayer, PlayLayer)
-{
-    struct Fields
-    {
+// Sử dụng priority cực cao để đè các mod khác
+class $modify(MyPlayLayer, PlayLayer) {
+    // Ép ưu tiên
+    static void onModify(auto& self) {
+        self.setHookPriority("PlayLayer::update", 99999);
+        self.setHookPriority("PlayLayer::destroyPlayer", 99999);
+    }
+
+    struct Fields {
         bool m_isDead = false;
         float m_time = 0.0f;
     };
 
-    bool init(GJGameLevel *level, bool useReplay, bool dontRun)
-    {
-        if (!PlayLayer::init(level, useReplay, dontRun))
-            return false;
+    bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
+        if (!PlayLayer::init(level, useReplay, dontRun)) return false;
+        
+        log::info("Mod OsuDeath da vao man choi!"); // Check xem co dong nay trong console ko
         this->scheduleUpdate();
         return true;
     }
 
-    void update(float dt)
-    {
+    void update(float dt) {
         PlayLayer::update(dt);
 
-        if (m_fields->m_isDead)
-        {
+        if (m_fields->m_isDead) {
             m_fields->m_time += dt;
 
             auto fmod = FMODAudioEngine::sharedEngine();
-            if (fmod && fmod->m_system)
-            {
-                // Lấy duration an toàn
-                double settingVal = Mod::get()->getSettingValue<double>("fade-speed");
-                float duration = static_cast<float>(settingVal);
-                if (duration <= 0.001f)
-                    duration = 0.5f;
+            if (fmod && fmod->m_system) {
+                // Lay duration tu settings
+                double durationSetting = Mod::get()->getSettingValue<double>("fade-speed");
+                float duration = static_cast<float>(durationSetting);
+                if (duration <= 0.01f) duration = 0.5f;
 
                 float progress = 1.0f - (m_fields->m_time / duration);
-                if (progress < 0.0f)
-                    progress = 0.0f;
+                if (progress < 0.0f) progress = 0.0f;
 
-                // Lấy Master Group của hệ thống FMOD
-                FMOD::ChannelGroup *masterGroup;
+                FMOD::ChannelGroup* masterGroup;
                 fmod->m_system->getMasterChannelGroup(&masterGroup);
 
-                if (masterGroup)
-                {
-                    // Ép Pitch lên toàn bộ âm thanh đầu ra
-                    masterGroup->setPitch(progress * progress);
+                if (masterGroup) {
+                    float finalPitch = progress * progress;
+                    masterGroup->setPitch(finalPitch);
+                    
+                    // Neu van ko nghe thay gi, thu ep ca Volume
+                    // masterGroup->setVolume(progress);
 
-                    // Ghi log để Mèo check trong Console (Phím ~)
-                    // Nếu hiện dòng này mà nhạc không méo -> Có mod khác đang tranh chấp MasterGroup
-                    log::info("Osu Pitch: {}", progress * progress);
+                    // LOG BAT BUOC PHAI CO
+                    log::info("Pitch dang giam: {}", finalPitch);
                 }
             }
         }
     }
 
-    void destroyPlayer(PlayerObject *player, GameObject *obj)
-    {
+    void destroyPlayer(PlayerObject* player, GameObject* obj) {
         PlayLayer::destroyPlayer(player, obj);
-        if (!m_fields->m_isDead)
-        {
+        
+        // Neu dam vao gai ma ko co log nay -> Hook bi hong
+        log::info("Xac nhan hèo!"); 
+
+        if (!m_fields->m_isDead) {
             m_fields->m_isDead = true;
             m_fields->m_time = 0.0f;
         }
     }
 
-    void resetLevel()
-    {
-        // Reset Pitch về 1.0 ngay lập tức trước khi reset màn
-        auto fmod = FMODAudioEngine::sharedEngine();
-        if (fmod)
-        {
-            FMOD::ChannelGroup *masterGroup;
-            fmod->m_system->getMasterChannelGroup(&masterGroup);
-            if (masterGroup)
-            {
-                masterGroup->setPitch(1.0f);
-            }
-        }
-
+    void resetLevel() {
         m_fields->m_isDead = false;
         m_fields->m_time = 0.0f;
 
+        auto fmod = FMODAudioEngine::sharedEngine();
+        if (fmod && fmod->m_system) {
+            FMOD::ChannelGroup* masterGroup;
+            fmod->m_system->getMasterChannelGroup(&masterGroup);
+            if (masterGroup) {
+                masterGroup->setPitch(1.0f);
+            }
+        }
         PlayLayer::resetLevel();
     }
 };
