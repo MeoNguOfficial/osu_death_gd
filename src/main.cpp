@@ -5,8 +5,8 @@
 using namespace geode::prelude;
 
 class $modify(MyPlayLayer, PlayLayer) {
-    // Ép ưu tiên cực cao để chạy TRƯỚC các mod khác
-    static inline int priority = 999999; 
+    // Ưu tiên cao để xử lý trước các mod can thiệp âm thanh khác
+    static inline int priority = 99999; 
 
     struct Fields {
         bool m_isDead = false;
@@ -32,8 +32,9 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void applyOsuPitch() {
-        // Chỉ chạy khi thực sự đang ở trong PlayLayer
-        if (!m_fields->m_isDead || !GameManager::sharedEngine()->getPlayLayer()) {
+        // Kiểm tra xem PlayLayer hiện tại có còn tồn tại không
+        auto pl = PlayLayer::get();
+        if (!m_fields->m_isDead || !pl) {
             this->stopActionByTag(m_fields->m_actionTag);
             return;
         }
@@ -54,35 +55,36 @@ class $modify(MyPlayLayer, PlayLayer) {
 
             float finalPitch = std::clamp(progress * progress, 0.0f, 1.0f);
             fmod->m_backgroundMusicChannel->setPitch(finalPitch);
-            if (fmod->m_globalChannel) fmod->m_globalChannel->setPitch(finalPitch);
+            
+            if (fmod->m_globalChannel) {
+                fmod->m_globalChannel->setPitch(finalPitch);
+            }
         }
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        // KIỂM TRA TỐI THƯỢNG:
-        // 1. Màn chơi phải chạy được ít nhất 0.5 giây (loại bỏ trigger lúc load)
-        // 2. Phải thực sự đang trong trạng thái chơi (không phải menu/randomizer gọi)
-        if (m_fields->m_initialCooldown > 0.5f && !m_fields->m_isDead) {
-            
-            // Một số mod gọi destroyPlayer nhưng không làm chết player thật
-            // Ta kiểm tra xem player thực sự có đang nổ tung không
-            if (player->m_isDead) { 
-                m_fields->m_isDead = true;
-                m_fields->m_time = 0.0f;
-
-                this->stopActionByTag(m_fields->m_actionTag);
-
-                auto delay = CCDelayTime::create(1.0f / 60.0f);
-                auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
-                auto seq = CCSequence::create(delay, call, nullptr);
-                auto repeat = CCRepeatForever::create(seq);
-                repeat->setTag(m_fields->m_actionTag);
-                
-                this->runAction(repeat);
-                log::info("Osu Death triggered hop le tai {:.2f}s", m_fields->m_initialCooldown);
-            }
-        }
+        // Chạy hàm gốc trước để Geode/Game cập nhật trạng thái player->m_isDead
         PlayLayer::destroyPlayer(player, obj);
+
+        // Kiểm tra: 
+        // 1. Phải chơi được một lúc (0.5s) để tránh lỗi trigger khi vừa spawn
+        // 2. Player thực sự phải ở trạng thái chết
+        // 3. Chưa kích hoạt hiệu ứng này trước đó
+        if (m_fields->m_initialCooldown > 0.5f && player->m_isDead && !m_fields->m_isDead) {
+            m_fields->m_isDead = true;
+            m_fields->m_time = 0.0f;
+
+            this->stopActionByTag(m_fields->m_actionTag);
+
+            auto delay = CCDelayTime::create(1.0f / 60.0f);
+            auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
+            auto seq = CCSequence::create(delay, call, nullptr);
+            auto repeat = CCRepeatForever::create(seq);
+            repeat->setTag(m_fields->m_actionTag);
+            
+            this->runAction(repeat);
+            log::info("Osu Death triggered hop le tai {:.2f}s", m_fields->m_initialCooldown);
+        }
     }
 
     void resetLevel() {
@@ -99,7 +101,9 @@ class $modify(MyPlayLayer, PlayLayer) {
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod && fmod->m_backgroundMusicChannel) {
             fmod->m_backgroundMusicChannel->setPitch(1.0f);
-            if (fmod->m_globalChannel) fmod->m_globalChannel->setPitch(1.0f);
+            if (fmod->m_globalChannel) {
+                fmod->m_globalChannel->setPitch(1.0f);
+            }
         }
     }
 };
