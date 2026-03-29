@@ -1,63 +1,63 @@
 #include <Geode/Geode.hpp>
-
-// Include các header cần thiết
-#include <Geode/modify/MenuLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/FMODAudioEngine.hpp>
 
 using namespace geode::prelude;
 
-// --- PHẦN 1: NÚT BẤM Ở MENU ---
-class $modify(MyMenuLayer, MenuLayer) {
-    bool init() {
-        if (!MenuLayer::init()) return false;
+class $modify(MyPlayLayer, PlayLayer) {
+    struct Fields {
+        bool m_isDead = false;
+        float m_currentPitch = 1.0f;
+    };
 
-        auto myButton = CCMenuItemSpriteExtra::create(
-            CCSprite::createWithSpriteFrameName("GJ_likeBtn_001.png"),
-            this,
-            menu_selector(MyMenuLayer::onMyButton)
-        );
-
-        auto menu = this->getChildByID("bottom-menu");
-        if (menu) {
-            menu->addChild(myButton);
-            myButton->setID("my-button"_spr);
-            menu->updateLayout();
-        }
-
+    bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
+        if (!PlayLayer::init(level, useReplay, dontRun)) return false;
+        this->scheduleUpdate();
         return true;
     }
 
-    void onMyButton(CCObject*) {
-        FLAlertLayer::create("Geode", "Hello from my custom mod!", "OK")->show();
-    }
-}; // <--- PHẢI CÓ DẤU CHẤM PHẨY Ở ĐÂY
+    void update(float dt) {
+        PlayLayer::update(dt);
 
-// --- PHẦN 2: HIỆU ỨNG OSU DEATH ---
-class $modify(MyPlayLayer, PlayLayer) {
-    void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        PlayLayer::destroyPlayer(player, obj);
-
-        // Làm méo nhạc khi hẻo
         auto engine = FMODAudioEngine::sharedEngine();
-        if (engine && engine->m_system) { // Thêm check an toàn để tránh crash
-            FMOD::ChannelGroup* masterGroup = nullptr;
-            if (engine->m_system->getMasterChannelGroup(&masterGroup) == FMOD_OK && masterGroup) {
-                masterGroup->setPitch(0.35f);
+        if (!engine || !engine->m_system) return;
+
+        FMOD::ChannelGroup* masterGroup;
+        engine->m_system->getMasterChannelGroup(&masterGroup);
+        if (!masterGroup) return;
+
+        if (m_fields->m_isDead) {
+            if (m_fields->m_currentPitch > 0.0f) {
+                // Giảm dần pitch. 2.5f là tốc độ (có thể chỉnh lại)
+                m_fields->m_currentPitch -= dt * 2.5f; 
+                if (m_fields->m_currentPitch < 0.0f) m_fields->m_currentPitch = 0.0f;
+                masterGroup->setPitch(m_fields->m_currentPitch);
             }
         }
+    }
+
+    void destroyPlayer(PlayerObject* player, GameObject* obj) {
+        // Nếu đã chết rồi thì không trigger lại nữa (chặn lỗi lặp âm)
+        if (m_fields->m_isDead) return;
+
+        PlayLayer::destroyPlayer(player, obj);
+        m_fields->m_isDead = true;
     }
 
     void resetLevel() {
-        PlayLayer::resetLevel();
-        
-        // Trả nhạc về bình thường khi hồi sinh
+        // Khi bấm Reset, ngay lập tức ép Pitch về 1.0 để tránh lag âm thanh
         auto engine = FMODAudioEngine::sharedEngine();
-        if (engine && engine->m_system) {
-            FMOD::ChannelGroup* masterGroup = nullptr;
-            if (engine->m_system->getMasterChannelGroup(&masterGroup) == FMOD_OK && masterGroup) {
+        if (engine) {
+            FMOD::ChannelGroup* masterGroup;
+            engine->m_system->getMasterChannelGroup(&masterGroup);
+            if (masterGroup) {
                 masterGroup->setPitch(1.0f);
             }
         }
+
+        m_fields->m_isDead = false;
+        m_fields->m_currentPitch = 1.0f;
+        
+        PlayLayer::resetLevel();
     }
-}; // <--- PHẢI CÓ DẤU CHẤM PHẨY Ở ĐÂY
+};
