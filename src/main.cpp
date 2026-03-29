@@ -29,23 +29,31 @@ class $modify(MyPlayLayer, PlayLayer)
             m_fields->m_time += dt;
 
             auto fmod = FMODAudioEngine::sharedEngine();
-            if (fmod)
+            if (fmod && fmod->m_system)
             {
-                float duration = static_cast<float>(Mod::get()->getSettingValue<double>("fade-speed"));
-                if (duration <= 0.01f)
+                // Lấy duration an toàn
+                double settingVal = Mod::get()->getSettingValue<double>("fade-speed");
+                float duration = static_cast<float>(settingVal);
+                if (duration <= 0.001f)
                     duration = 0.5f;
 
                 float progress = 1.0f - (m_fields->m_time / duration);
                 if (progress < 0.0f)
                     progress = 0.0f;
 
-                // Dùng hàm này để ép toàn bộ game chậm lại và nhạc méo theo
-                // Đây là cách Megahack và các mod Speedhack hay dùng
-                fmod->setTargetPitch(progress * progress);
+                // Lấy Master Group của hệ thống FMOD
+                FMOD::ChannelGroup *masterGroup;
+                fmod->m_system->getMasterChannelGroup(&masterGroup);
 
-                // Dòng này để Mèo check trong Console (Phím ~)
-                // Nếu hẻo mà thấy dòng này hiện ra là mod ĐÃ CHẠY
-                log::info("Osu Pitch: {}", progress);
+                if (masterGroup)
+                {
+                    // Ép Pitch lên toàn bộ âm thanh đầu ra
+                    masterGroup->setPitch(progress * progress);
+
+                    // Ghi log để Mèo check trong Console (Phím ~)
+                    // Nếu hiện dòng này mà nhạc không méo -> Có mod khác đang tranh chấp MasterGroup
+                    log::info("Osu Pitch: {}", progress * progress);
+                }
             }
         }
     }
