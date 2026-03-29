@@ -41,7 +41,10 @@ class $modify(MyPlayLayer, PlayLayer) {
         // Làm méo nhạc khi hẻo
         auto engine = FMODAudioEngine::sharedEngine();
         if (engine && engine->m_system) { // Thêm check an toàn để tránh crash
-            engine->m_system->setPitch(0.35f); 
+            FMOD::ChannelGroup* masterGroup = nullptr;
+            if (engine->m_system->getMasterChannelGroup(&masterGroup) == FMOD_OK && masterGroup) {
+                masterGroup->setPitch(0.35f);
+            }
         }
     }
 
@@ -51,7 +54,10 @@ class $modify(MyPlayLayer, PlayLayer) {
         // Trả nhạc về bình thường khi hồi sinh
         auto engine = FMODAudioEngine::sharedEngine();
         if (engine && engine->m_system) {
-            engine->m_system->setPitch(1.0f);
+            FMOD::ChannelGroup* masterGroup = nullptr;
+            if (engine->m_system->getMasterChannelGroup(&masterGroup) == FMOD_OK && masterGroup) {
+                masterGroup->setPitch(1.0f);
+            }
         }
     }
 }; // <--- PHẢI CÓ DẤU CHẤM PHẨY Ở ĐÂY
