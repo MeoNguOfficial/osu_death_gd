@@ -18,3 +18,4 @@ jobs:
         with:
           path: ./  # Nếu CMakeLists.txt nằm ở ngoài cùng
           combine: true
+          sdk: latest
