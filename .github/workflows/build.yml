@@ -8,22 +8,17 @@ on:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        config:
-          - name: Windows
-            os: windows-latest
-
-    name: ${{ matrix.config.name }}
-    runs-on: ${{ matrix.config.os }}
-
+    name: Build
+    runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Build Geode Mod
+      - name: Build Mod
+        id: build-mod
         uses: geode-sdk/build-geode-mod@main
         with:
-          # This action version works perfectly with Geode 5.x projects
           combine: true
+        env:
+          # Ép biến môi trường vào thẳng bước build
+          Geode_DIR: ${{ github.workspace }}/geode-sdk
+          GEODE_SDK: ${{ github.workspace }}/geode-sdk
