@@ -15,7 +15,7 @@ private:
     float m_ogSfxPitch = 1.f;
     bool m_isFading = false;
     bool m_hasTriggered = false;
-    CCNode* m_target = nullptr;  // Đổi từ CCObject* sang CCNode*
+    CCNode* m_target = nullptr;
     int m_actionTag = 1001;
     
     void update(float dt) {
@@ -25,11 +25,9 @@ private:
         float progress = 1.f - std::min(m_time / m_duration, 1.f);
         
         if (progress <= 0.f) {
-            // Fade kết thúc
             m_isFading = false;
             cleanup();
             
-            // Dừng nhạc
             auto fmod = FMODAudioEngine::sharedEngine();
             if (fmod && fmod->m_backgroundMusicChannel) {
                 fmod->m_backgroundMusicChannel->setPaused(true);
@@ -37,18 +35,15 @@ private:
             return;
         }
         
-        // Tính pitch
         float finalPitch = progress * progress;
         
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod) {
-            // Set pitch cho music
             if (fmod->m_backgroundMusicChannel) {
                 fmod->m_backgroundMusicChannel->setPitch(m_ogMusicPitch * finalPitch);
                 fmod->m_backgroundMusicChannel->setPaused(false);
             }
             
-            // Set pitch cho SFX
             if (fmod->m_globalChannel) {
                 fmod->m_globalChannel->setPitch(m_ogSfxPitch * finalPitch);
             }
@@ -61,7 +56,6 @@ private:
             m_target->unschedule(schedule_selector(OsuDeathEffect::update));
         }
         
-        // Reset pitch về original
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod) {
             if (fmod->m_backgroundMusicChannel) {
@@ -85,7 +79,7 @@ public:
         return m_instance;
     }
     
-    void start(CCNode* target) {  // Đổi parameter thành CCNode*
+    void start(CCNode* target) {
         if (m_isFading || m_hasTriggered) return;
         
         m_hasTriggered = true;
@@ -93,12 +87,10 @@ public:
         m_time = 0.f;
         m_target = target;
         
-        // Lấy duration từ setting
         auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
         m_duration = static_cast<float>(speedValue);
         if (m_duration <= 0.01f) m_duration = 1.f;
         
-        // Lưu original pitch
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod) {
             if (fmod->m_backgroundMusicChannel) {
@@ -109,7 +101,6 @@ public:
             }
         }
         
-        // Schedule update
         if (m_target) {
             m_target->schedule(schedule_selector(OsuDeathEffect::update), 1.f / 60.f);
         }
@@ -131,7 +122,6 @@ class $modify(MyPlayLayer, PlayLayer)
         if (!PlayLayer::init(level, useReplay, dontRun))
             return false;
         
-        // Reset effect khi vào level mới
         OsuDeathEffect::get()->stop();
         return true;
     }
@@ -162,36 +152,32 @@ class $modify(MyPlayerObject, PlayerObject)
         
         auto playLayer = PlayLayer::get();
         if (playLayer) {
-            // Bắt đầu effect khi player chết
             OsuDeathEffect::get()->start(playLayer);
         }
     }
 };
 
-// Hook FMODAudioEngine để đảm bảo pitch không bị reset
+// Hook FMODAudioEngine
 class $modify(MyFMODAudioEngine, FMODAudioEngine)
 {
     void update(float dt) {
         FMODAudioEngine::update(dt);
-        
-        // Nếu đang fade, force set pitch mỗi frame để tránh bị game reset
-        if (OsuDeathEffect::get()->isFading()) {
-            // Không cần làm gì thêm vì OsuDeathEffect đã tự update pitch
-        }
+        // Không cần làm gì thêm vì OsuDeathEffect tự update
     }
     
-    // Ngăn game tự ý stop music khi đang fade
+    // Override stopBackgroundMusic
     void stopBackgroundMusic() {
         if (OsuDeathEffect::get()->isFading()) {
-            // Không cho stop music khi đang fade
+            // Nếu đang fade, không cho stop music
             return;
         }
+        // Gọi method gốc
         FMODAudioEngine::stopBackgroundMusic();
     }
     
+    // Override pauseBackgroundMusic nếu cần
     void pauseBackgroundMusic() {
         if (OsuDeathEffect::get()->isFading()) {
-            // Không cho pause music khi đang fade
             return;
         }
         FMODAudioEngine::pauseBackgroundMusic();
