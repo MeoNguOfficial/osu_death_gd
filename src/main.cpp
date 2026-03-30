@@ -5,17 +5,23 @@
 
 using namespace geode::prelude;
 
-// Sử dụng một biến global hoặc static để lưu trữ pitch hiện tại nhằm đồng bộ với FMOD hook
 static float s_currentOsuPitch = 1.0f;
 static bool s_isOsuEffectActive = false;
 
 class $modify(MyFMOD, FMODAudioEngine) {
-    void setBackgroundMusicPitch(float pitch) {
-        // Nếu đang trong hiệu ứng chết, không cho phép game reset pitch về 1.0
-        if (s_isOsuEffectActive) {
-            FMODAudioEngine::setBackgroundMusicPitch(s_currentOsuPitch);
-        } else {
-            FMODAudioEngine::setBackgroundMusicPitch(pitch);
+    // Hook hàm update của engine để ép pitch mỗi frame khi đang chết
+    void update(float dt) {
+        FMODAudioEngine::update(dt);
+
+        if (s_isOsuEffectActive && m_backgroundMusicChannel) {
+            m_backgroundMusicChannel->setPitch(s_currentOsuPitch);
+            
+            // Đảm bảo nhạc không bị pause bởi game
+            bool isPaused;
+            m_backgroundMusicChannel->getPaused(&isPaused);
+            if (isPaused) {
+                m_backgroundMusicChannel->setPaused(false);
+            }
         }
     }
 };
@@ -23,8 +29,9 @@ class $modify(MyFMOD, FMODAudioEngine) {
 class $modify(MyPlayLayer, PlayLayer) {
     struct Fields {
         float m_time = 0.0f;
-        int m_actionTag = 1001;
         bool m_isFading = false;
+        // Tag để quản lý schedule
+        bool m_scheduleEnabled = false;
     };
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
@@ -34,57 +41,45 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void onPlayerReallyDied() {
-        // Kích hoạt trạng thái hiệu ứng
         s_isOsuEffectActive = true;
         m_fields->m_time = 0.0f;
         m_fields->m_isFading = true;
 
-        this->stopActionByTag(m_fields->m_actionTag);
-
-        // Sử dụng scheduleUpdate thay vì CCSequence để mượt hơn trên 2.2
-        this->schedule(schedule_selector(MyPlayLayer::applyOsuPitchPtr));
-        log::info("Osu Death triggered!");
+        if (!m_fields->m_scheduleEnabled) {
+            this->schedule(schedule_selector(MyPlayLayer::applyOsuPitch), 0.0f);
+            m_fields->m_scheduleEnabled = true;
+        }
+        
+        log::info("Osu Death Effect Started");
     }
 
-    // Wrapper để dùng với schedule
-    void applyOsuPitchPtr(float dt) {
-        this->applyOsuPitch();
-    }
-
-    void applyOsuPitch() {
+    void applyOsuPitch(float dt) {
         if (!m_fields->m_isFading) return;
 
-        auto fmod = FMODAudioEngine::sharedEngine();
         auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
         float duration = static_cast<float>(speedValue);
         if (duration <= 0.01f) duration = 1.0f;
 
-        m_fields->m_time += 1.0f / 60.0f;
+        m_fields->m_time += dt; // Sử dụng delta time thực tế cho mượt
         float progress = 1.0f - (m_fields->m_time / duration);
 
         if (progress <= 0.0f) {
             progress = 0.0f;
             m_fields->m_isFading = false;
-            s_isOsuEffectActive = false;
-            this->unschedule(schedule_selector(MyPlayLayer::applyOsuPitchPtr));
-        }
-
-        // Công thức tính pitch (progress * progress tạo độ mượt)
-        s_currentOsuPitch = progress; 
-
-        if (fmod) {
-            // Ép pitch thông qua hàm của Geode/GD thay vì can thiệp trực tiếp channel
-            fmod->setBackgroundMusicPitch(s_currentOsuPitch);
+            s_isOsuEffectActive = false; // Dừng việc ép pitch ở FMOD hook
             
-            // QUAN TRỌNG: Ngăn chặn game tự động pause nhạc khi chết
-            if (fmod->m_backgroundMusicChannel) {
-                bool isPaused;
-                fmod->m_backgroundMusicChannel->getPaused(&isPaused);
-                if (isPaused && m_fields->m_isFading) {
-                    fmod->m_backgroundMusicChannel->setPaused(false);
+            this->unschedule(schedule_selector(MyPlayLayer::applyOsuPitch));
+            m_fields->m_scheduleEnabled = false;
+
+            // Sau khi xong hiệu ứng thì mới cho dừng hẳn nhạc
+            if (auto fmod = FMODAudioEngine::sharedEngine()) {
+                if (fmod->m_backgroundMusicChannel) {
+                    fmod->m_backgroundMusicChannel->setPaused(true);
                 }
             }
         }
+
+        s_currentOsuPitch = progress * progress; // Bình phương để pitch giảm trầm hơn
     }
 
     void resetLevel() {
@@ -100,17 +95,24 @@ class $modify(MyPlayLayer, PlayLayer) {
     void cleanupOsuEffect() {
         s_isOsuEffectActive = false;
         s_currentOsuPitch = 1.0f;
-        this->unschedule(schedule_selector(MyPlayLayer::applyOsuPitchPtr));
         
-        auto fmod = FMODAudioEngine::sharedEngine();
-        if (fmod) fmod->setBackgroundMusicPitch(1.0f);
+        this->unschedule(schedule_selector(MyPlayLayer::applyOsuPitch));
+        m_fields->m_scheduleEnabled = false;
+
+        if (auto fmod = FMODAudioEngine::sharedEngine()) {
+            if (fmod->m_backgroundMusicChannel) {
+                fmod->m_backgroundMusicChannel->setPitch(1.0f);
+            }
+        }
     }
 };
 
 class $modify(MyPlayerObject, PlayerObject) {
     void playerDestroyed(bool p0) {
         PlayerObject::playerDestroyed(p0);
+        
         if (auto playLayer = PlayLayer::get()) {
+            // Caster an toàn sang class modify
             static_cast<MyPlayLayer*>(playLayer)->onPlayerReallyDied();
         }
     }
