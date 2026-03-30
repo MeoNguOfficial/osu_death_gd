@@ -15,7 +15,7 @@ private:
     float m_ogSfxPitch = 1.f;
     bool m_isFading = false;
     bool m_hasTriggered = false;
-    CCObject* m_target = nullptr;
+    CCNode* m_target = nullptr;  // Đổi từ CCObject* sang CCNode*
     int m_actionTag = 1001;
     
     void update(float dt) {
@@ -37,15 +37,14 @@ private:
             return;
         }
         
-        // Tính pitch (có thể dùng easing khác)
-        float finalPitch = progress * progress; // Hoặc dùng progress nếu muốn linear
+        // Tính pitch
+        float finalPitch = progress * progress;
         
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod) {
             // Set pitch cho music
             if (fmod->m_backgroundMusicChannel) {
                 fmod->m_backgroundMusicChannel->setPitch(m_ogMusicPitch * finalPitch);
-                // QUAN TRỌNG: Đảm bảo music không bị pause
                 fmod->m_backgroundMusicChannel->setPaused(false);
             }
             
@@ -86,7 +85,7 @@ public:
         return m_instance;
     }
     
-    void start(CCObject* target) {
+    void start(CCNode* target) {  // Đổi parameter thành CCNode*
         if (m_isFading || m_hasTriggered) return;
         
         m_hasTriggered = true;
@@ -178,11 +177,10 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine)
         // Nếu đang fade, force set pitch mỗi frame để tránh bị game reset
         if (OsuDeathEffect::get()->isFading()) {
             // Không cần làm gì thêm vì OsuDeathEffect đã tự update pitch
-            // Hook này chỉ để đảm bảo nếu cần force thêm
         }
     }
     
-    // Ngăn game tự ý pause music khi đang fade
+    // Ngăn game tự ý stop music khi đang fade
     void stopBackgroundMusic() {
         if (OsuDeathEffect::get()->isFading()) {
             // Không cho stop music khi đang fade
