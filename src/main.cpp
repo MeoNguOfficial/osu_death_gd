@@ -8,37 +8,55 @@ using namespace geode::prelude;
 static float s_targetPitch = 1.0f;
 static bool s_isDeadEffect = false;
 
+// Chặn lệnh dừng nhạc gốc của game
 class $modify(MyFMOD, FMODAudioEngine) {
     void update(float dt) {
         FMODAudioEngine::update(dt);
-
         if (s_isDeadEffect) {
             if (m_backgroundMusicChannel) {
                 m_backgroundMusicChannel->setPitch(s_targetPitch);
-                
-                // Ép nhạc tiếp tục phát
-                bool isPaused;
-                m_backgroundMusicChannel->getPaused(&isPaused);
-                if (isPaused && s_targetPitch > 0.05f) {
-                    m_backgroundMusicChannel->setPaused(false);
-                }
+                m_backgroundMusicChannel->setPaused(false); // Chống lại lệnh pause gốc
             }
             if (m_globalChannel) {
                 m_globalChannel->setPitch(s_targetPitch);
             }
-            // Ép FMOD cập nhật các thay đổi pitch ngay lập tức
-            if (m_system) {
-                m_system->update();
-            }
         }
     }
 
-    // Sửa lỗi: Thêm tham số 'bool p0' (thường là clear) để khớp với binding 2.2081
+    // Chặn game tắt nhạc khi chết
     void stopAllMusic(bool p0) {
         if (s_isDeadEffect) return; 
         FMODAudioEngine::stopAllMusic(p0);
     }
 };
+
+// Trong PlayLayer, thay vì dùng Action, hãy dùng schedule
+void MyPlayLayer::onPlayerReallyDied() {
+    if (s_isDeadEffect) return;
+    s_isDeadEffect = true;
+    s_targetPitch = 1.0f;
+
+    // Thay vì chạy Action, hãy schedule update để mượt hơn theo FPS
+    this->schedule(schedule_selector(MyPlayLayer::updateOsuFade));
+}
+
+void MyPlayLayer::updateOsuFade(float dt) {
+    auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
+    float duration = static_cast<float>(speedValue);
+
+    // Giảm pitch dựa trên delta time thực tế của máy
+    s_targetPitch -= dt / duration;
+
+    if (s_targetPitch <= 0.01f) {
+        s_targetPitch = 0.01f;
+        s_isDeadEffect = false;
+        this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
+        
+        if (auto fmod = FMODAudioEngine::sharedEngine()) {
+            if (fmod->m_backgroundMusicChannel) fmod->m_backgroundMusicChannel->setPaused(true);
+        }
+    }
+}
 
 class $modify(MyPlayLayer, PlayLayer) {
     struct Fields {

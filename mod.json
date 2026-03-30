@@ -12,7 +12,7 @@
     "developer": "Meo",
     "description": "The music slows down smoothly when you die, just like in osu!",
     "dependencies": {
-        "geode.node-ids": ">=v1.20.0"
+        "geode.node-ids": ">=v1.23.0"
     },
     "settings": {
         "fade-speed": {
