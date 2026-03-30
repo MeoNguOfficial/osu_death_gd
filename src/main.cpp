@@ -9,14 +9,14 @@ static float s_targetPitch = 1.0f;
 static bool s_isDeadEffect = false;
 
 class $modify(MyFMOD, FMODAudioEngine) {
-    // Hook hàm update để ép Pitch liên tục
     void update(float dt) {
         FMODAudioEngine::update(dt);
+
         if (s_isDeadEffect) {
             if (m_backgroundMusicChannel) {
                 m_backgroundMusicChannel->setPitch(s_targetPitch);
                 
-                // CỰC KỲ QUAN TRỌNG: Nếu game cố tình pause nhạc, ta force resume ngay lập tức
+                // Ép nhạc tiếp tục phát
                 bool isPaused;
                 m_backgroundMusicChannel->getPaused(&isPaused);
                 if (isPaused && s_targetPitch > 0.05f) {
@@ -26,13 +26,17 @@ class $modify(MyFMOD, FMODAudioEngine) {
             if (m_globalChannel) {
                 m_globalChannel->setPitch(s_targetPitch);
             }
+            // Ép FMOD cập nhật các thay đổi pitch ngay lập tức
+            if (m_system) {
+                m_system->update();
+            }
         }
     }
 
-    // Hook thêm hàm này để chặn các mod khác gọi lệnh dừng nhạc
-    virtual void stopAllMusic() {
-        if (s_isDeadEffect) return; // Từ chối dừng nhạc nếu đang chạy hiệu ứng Osu
-        FMODAudioEngine::stopAllMusic();
+    // Sửa lỗi: Thêm tham số 'bool p0' (thường là clear) để khớp với binding 2.2081
+    void stopAllMusic(bool p0) {
+        if (s_isDeadEffect) return; 
+        FMODAudioEngine::stopAllMusic(p0);
     }
 };
 
@@ -59,11 +63,13 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         this->stopActionByTag(m_fields->m_osuActionTag);
         
-        // Sử dụng một Action lặp lại để giảm pitch
         auto delay = CCDelayTime::create(0.01f); 
         auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::updateOsuFade));
         auto seq = CCSequence::create(delay, call, nullptr);
-        this->runAction(CCRepeatForever::create(seq))->setTag(m_fields->m_osuActionTag);
+        auto repeat = CCRepeatForever::create(seq);
+        repeat->setTag(m_fields->m_osuActionTag);
+
+        this->runAction(repeat);
     }
 
     void updateOsuFade() {
@@ -72,13 +78,13 @@ class $modify(MyPlayLayer, PlayLayer) {
         auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
         float duration = static_cast<float>(speedValue);
         
-        // Giảm dần pitch
         s_targetPitch -= (0.01f / duration);
 
         if (s_targetPitch <= 0.01f) {
-            this->resetOsuVars(); // Dừng hiệu ứng khi nhạc đã im lặng
+            s_targetPitch = 0.01f;
+            s_isDeadEffect = false;
+            this->stopActionByTag(m_fields->m_osuActionTag);
             
-            // Lúc này mới cho phép dừng nhạc thật sự
             if (auto fmod = FMODAudioEngine::sharedEngine()) {
                 if (fmod->m_backgroundMusicChannel) fmod->m_backgroundMusicChannel->setPaused(true);
             }
@@ -102,8 +108,12 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod) {
-            if (fmod->m_backgroundMusicChannel) fmod->m_backgroundMusicChannel->setPitch(1.0f);
-            if (fmod->m_globalChannel) fmod->m_globalChannel->setPitch(1.0f);
+            if (fmod->m_backgroundMusicChannel) {
+                fmod->m_backgroundMusicChannel->setPitch(1.0f);
+            }
+            if (fmod->m_globalChannel) {
+                fmod->m_globalChannel->setPitch(1.0f);
+            }
         }
     }
 };
