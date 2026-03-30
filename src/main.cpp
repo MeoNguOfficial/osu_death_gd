@@ -115,32 +115,28 @@ public:
     bool isFading() { return m_isFading; }
 };
 
-class $modify(MyPlayLayer, PlayLayer)
+// Hook FMODAudioEngine
+class $modify(MyFMODAudioEngine, FMODAudioEngine)
 {
-    bool init(GJGameLevel *level, bool useReplay, bool dontRun)
-    {
-        if (!PlayLayer::init(level, useReplay, dontRun))
-            return false;
-        
-        OsuDeathEffect::get()->stop();
-        return true;
+    void update(float dt) {
+        FMODAudioEngine::update(dt);
     }
     
-    void destroyPlayer(PlayerObject *player, GameObject *obj)
-    {
-        PlayLayer::destroyPlayer(player, obj);
+    void stopBackgroundMusic() {
+        if (OsuDeathEffect::get()->isFading()) {
+            // Nếu đang fade, chặn không cho dừng nhạc
+            return;
+        }
+        // Gọi hàm gốc thông qua class modify
+        m_fields->m_backgroundMusicChannel = m_fields->m_backgroundMusicChannel; // trick để compiler không phàn nàn nếu cần
+        return FMODAudioEngine::stopBackgroundMusic();
     }
     
-    void resetLevel()
-    {
-        OsuDeathEffect::get()->stop();
-        PlayLayer::resetLevel();
-    }
-    
-    void onQuit()
-    {
-        OsuDeathEffect::get()->stop();
-        PlayLayer::onQuit();
+    void pauseBackgroundMusic() {
+        if (OsuDeathEffect::get()->isFading()) {
+            return;
+        }
+        return FMODAudioEngine::pauseBackgroundMusic();
     }
 };
 
