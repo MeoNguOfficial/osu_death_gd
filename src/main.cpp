@@ -162,20 +162,19 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine)
 {
     void update(float dt) {
         FMODAudioEngine::update(dt);
-        // Không cần làm gì thêm vì OsuDeathEffect tự update
     }
     
-    // Override stopBackgroundMusic
+    // Override stopBackgroundMusic - KHÔNG gọi base class
     void stopBackgroundMusic() {
         if (OsuDeathEffect::get()->isFading()) {
-            // Nếu đang fade, không cho stop music
+            // Nếu đang fade, không làm gì cả
             return;
         }
-        // Gọi method gốc
+        // Gọi base class method
         FMODAudioEngine::stopBackgroundMusic();
     }
     
-    // Override pauseBackgroundMusic nếu cần
+    // Override pauseBackgroundMusic
     void pauseBackgroundMusic() {
         if (OsuDeathEffect::get()->isFading()) {
             return;
