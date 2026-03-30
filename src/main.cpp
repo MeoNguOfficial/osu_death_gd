@@ -5,21 +5,6 @@
 
 using namespace geode::prelude;
 
-// Forward declaration
-class MyPlayLayer;
-
-class $modify(MyPlayerObject, PlayerObject) {
-    void playerDestroyed(bool p0) {
-        PlayerObject::playerDestroyed(p0);
-        
-        auto playLayer = PlayLayer::get();
-        if (playLayer) {
-            auto myPlayLayer = static_cast<MyPlayLayer*>(playLayer);
-            myPlayLayer->onPlayerReallyDied();
-        }
-    }
-};
-
 class $modify(MyPlayLayer, PlayLayer) {
     static inline int priority = -99999;
 
@@ -127,6 +112,20 @@ class $modify(MyPlayLayer, PlayLayer) {
             if (fmod->m_globalChannel) {
                 fmod->m_globalChannel->setPitch(1.0f);
             }
+        }
+    }
+};
+
+// Đặt PlayerObject hook sau MyPlayLayer
+class $modify(MyPlayerObject, PlayerObject) {
+    void playerDestroyed(bool p0) {
+        PlayerObject::playerDestroyed(p0);
+        
+        auto playLayer = PlayLayer::get();
+        if (playLayer) {
+            // Sử dụng reinterpret_cast hoặc dynamic_cast
+            auto myPlayLayer = reinterpret_cast<MyPlayLayer*>(playLayer);
+            myPlayLayer->onPlayerReallyDied();
         }
     }
 };
