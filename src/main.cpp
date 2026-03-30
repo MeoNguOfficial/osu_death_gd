@@ -1,8 +1,22 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/FMODAudioEngine.hpp>
+#include <Geode/modify/PlayerObject.hpp>
 
 using namespace geode::prelude;
+
+class $modify(MyPlayerObject, PlayerObject) {
+    void playerDestroyed(bool p0) {
+        PlayerObject::playerDestroyed(p0);
+        
+        // Khi player thực sự bị destroy, trigger từ PlayLayer
+        auto playLayer = PlayLayer::get();
+        if (playLayer) {
+            // Gọi hàm để trigger death effect
+            static_cast<MyPlayLayer*>(playLayer)->onPlayerReallyDied();
+        }
+    }
+};
 
 class $modify(MyPlayLayer, PlayLayer) {
     static inline int priority = -99999;
@@ -13,6 +27,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         int m_actionTag = 1001;
         bool m_hasStarted = false;
         bool m_isFading = false;
+        bool m_hasTriggeredDeath = false;  // Đánh dấu đã trigger death effect
     };
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
@@ -22,9 +37,31 @@ class $modify(MyPlayLayer, PlayLayer) {
         m_fields->m_time = 0.0f;
         m_fields->m_hasStarted = true;
         m_fields->m_isFading = false;
+        m_fields->m_hasTriggeredDeath = false;
         
         this->cleanupOsuEffect();
         return true;
+    }
+
+    void onPlayerReallyDied() {
+        // Chỉ trigger khi thực sự chết và chưa trigger
+        if (m_fields->m_hasStarted && !m_fields->m_isDead && !m_fields->m_hasTriggeredDeath) {
+            m_fields->m_isDead = true;
+            m_fields->m_hasTriggeredDeath = true;
+            m_fields->m_time = 0.0f;
+            m_fields->m_isFading = true;
+
+            this->stopActionByTag(m_fields->m_actionTag);
+
+            auto delay = CCDelayTime::create(1.0f / 60.0f);
+            auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
+            auto seq = CCSequence::create(delay, call, nullptr);
+            auto repeat = CCRepeatForever::create(seq);
+            repeat->setTag(m_fields->m_actionTag);
+            
+            this->runAction(repeat);
+            log::info("Osu Death triggered - Player really died!");
+        }
     }
 
     void applyOsuPitch() {
@@ -57,24 +94,8 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        if (m_fields->m_hasStarted && !m_fields->m_isDead) {
-            m_fields->m_isDead = true;
-            m_fields->m_time = 0.0f;
-            m_fields->m_isFading = true;
-
-            this->stopActionByTag(m_fields->m_actionTag);
-
-            // Sử dụng CCDelayTime để tạo khoảng delay giữa các lần gọi
-            auto delay = CCDelayTime::create(1.0f / 60.0f);  // ~16.67ms (60 FPS)
-            auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
-            auto seq = CCSequence::create(delay, call, nullptr);
-            auto repeat = CCRepeatForever::create(seq);
-            repeat->setTag(m_fields->m_actionTag);
-            
-            this->runAction(repeat);
-            log::info("Osu Death triggered - Starting pitch fade");
-        }
         PlayLayer::destroyPlayer(player, obj);
+        // Không làm gì ở đây nữa, để PlayerObject::playerDestroyed trigger
     }
 
     void resetLevel() {
@@ -82,6 +103,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         PlayLayer::resetLevel();
         m_fields->m_isDead = false;
         m_fields->m_isFading = false;
+        m_fields->m_hasTriggeredDeath = false;
         m_fields->m_time = 0.0f;
     }
 
@@ -94,6 +116,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         this->stopActionByTag(m_fields->m_actionTag);
         m_fields->m_isDead = false;
         m_fields->m_isFading = false;
+        m_fields->m_hasTriggeredDeath = false;
         m_fields->m_time = 0.0f;
 
         auto fmod = FMODAudioEngine::sharedEngine();
