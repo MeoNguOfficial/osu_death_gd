@@ -5,13 +5,14 @@
 using namespace geode::prelude;
 
 class $modify(MyPlayLayer, PlayLayer) {
-    // Ưu tiên cao để chạy sau cùng, đảm bảo Pitch không bị mod khác reset
     static inline int priority = -100;
 
     struct Fields {
         bool m_isDead = false;
         float m_time = 0.0f;
-        float m_initialCooldown = 0.0f;
+        int m_actionTag = 1001;
+        bool m_hasStarted = false; 
+        float m_initialCooldown = 0.0f; // Chốt chặn thời gian
     };
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
@@ -19,80 +20,89 @@ class $modify(MyPlayLayer, PlayLayer) {
         
         m_fields->m_isDead = false;
         m_fields->m_time = 0.0f;
+        m_fields->m_hasStarted = true;
         m_fields->m_initialCooldown = 0.0f;
         
+        this->cleanupOsuEffect();
         return true;
     }
 
     void update(float dt) {
         PlayLayer::update(dt);
-        
-        // Luôn đếm thời gian từ lúc bắt đầu màn để chống trigger giả
+        // Đếm thời gian từ lúc bắt đầu màn chơi
         m_fields->m_initialCooldown += dt;
+    }
 
-        // Nếu đang trong trạng thái chết, thực hiện giảm Pitch
-        if (m_fields->m_isDead) {
-            auto fmod = FMODAudioEngine::sharedEngine();
-            if (fmod && fmod->m_backgroundMusicChannel) {
-                double speedValue = Mod::get()->getSettingValue<double>("fade-speed");
-                float duration = static_cast<float>(speedValue);
-                if (duration <= 0.05f) duration = 1.0f; // Bảo vệ nếu setting lỗi
+    void applyOsuPitch() {
+        if (!m_fields->m_isDead || !m_fields->m_hasStarted) {
+            this->stopActionByTag(m_fields->m_actionTag);
+            return;
+        }
 
-                m_fields->m_time += dt;
-                float progress = 1.0f - (m_fields->m_time / duration);
+        auto fmod = FMODAudioEngine::sharedEngine();
+        if (fmod && fmod->m_backgroundMusicChannel) {
+            auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
+            float duration = static_cast<float>(speedValue);
+            if (duration <= 0.01f) duration = 1.0f;
 
-                // Giới hạn progress từ 0.0 đến 1.0
-                if (progress < 0.0f) progress = 0.0f;
-                
-                // Công thức Pitch giảm dần (progress * progress cho mượt)
-                float finalPitch = progress * progress;
-                
-                fmod->m_backgroundMusicChannel->setPitch(finalPitch);
-                if (fmod->m_globalChannel) {
-                    fmod->m_globalChannel->setPitch(finalPitch);
-                }
-                
-                // Log để Mèo kiểm tra trong Console
-                if (progress > 0.0f) {
-                    log::info("Osu Pitch: {:.2f}", finalPitch);
-                }
+            m_fields->m_time += 1.0f / 60.0f;
+            float progress = 1.0f - (m_fields->m_time / duration);
+
+            if (progress <= 0.0f) {
+                progress = 0.0f;
+                this->stopActionByTag(m_fields->m_actionTag);
+            }
+
+            float finalPitch = progress * progress;
+            fmod->m_backgroundMusicChannel->setPitch(finalPitch);
+            
+            if (fmod->m_globalChannel) {
+                fmod->m_globalChannel->setPitch(finalPitch);
             }
         }
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        // Gọi hàm gốc trước
+        // Gọi hàm gốc trước để game cập nhật trạng thái player->m_isDead
         PlayLayer::destroyPlayer(player, obj);
 
-        // Kiểm tra:
-        // 1. Phải chơi được ít nhất 0.5s (chống lỗi auto-death lúc load)
-        // 2. Player thực sự chết (m_isDead của game)
-        // 3. Mod chưa ở trạng thái chết
-        if (m_fields->m_initialCooldown > 0.5f && player->m_isDead && !m_fields->m_isDead) {
+        // ĐIỀU KIỆN FIX:
+        // 1. Phải vào màn chơi > 0.5s (chống trigger lúc load)
+        // 2. Nhân vật PHẢI thực sự chết (m_isDead của game là true)
+        // 3. Chưa kích hoạt hiệu ứng trước đó
+        if (m_fields->m_hasStarted && m_fields->m_initialCooldown > 0.5f && player->m_isDead && !m_fields->m_isDead) {
             m_fields->m_isDead = true;
             m_fields->m_time = 0.0f;
-            log::info("Osu Death Triggered thành công!");
+
+            this->stopActionByTag(m_fields->m_actionTag);
+
+            auto delay = CCDelayTime::create(1.0f / 60.0f);
+            auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
+            auto seq = CCSequence::create(delay, call, nullptr);
+            auto repeat = CCRepeatForever::create(seq);
+            repeat->setTag(m_fields->m_actionTag);
+            
+            this->runAction(repeat);
+            log::info("Osu Death triggered hop le tai {:.2f}s", m_fields->m_initialCooldown);
         }
     }
 
     void resetLevel() {
-        // Trả Pitch về 1.0 ngay lập tức khi nhấn R hoặc hồi sinh
-        this->resetPitchManually();
-        
-        m_fields->m_isDead = false;
-        m_fields->m_time = 0.0f;
-        m_fields->m_initialCooldown = 0.0f;
-
+        this->cleanupOsuEffect();
+        m_fields->m_initialCooldown = 0.0f; // Reset bộ đếm khi hồi sinh
         PlayLayer::resetLevel();
     }
 
     void onQuit() {
-        this->resetPitchManually();
+        this->cleanupOsuEffect();
         PlayLayer::onQuit();
     }
 
-    // Hàm phụ để reset nhạc sạch sẽ
-    void resetPitchManually() {
+    void cleanupOsuEffect() {
+        this->stopActionByTag(m_fields->m_actionTag);
+        m_fields->m_isDead = false;
+        m_fields->m_time = 0.0f;
+
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod) {
             if (fmod->m_backgroundMusicChannel) fmod->m_backgroundMusicChannel->setPitch(1.0f);
