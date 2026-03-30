@@ -12,7 +12,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         float m_time = 0.0f;
         int m_actionTag = 1001;
         bool m_hasStarted = false;
-        bool m_isFading = false;  // Thêm flag để kiểm soát fade
+        bool m_isFading = false;
     };
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
@@ -28,7 +28,6 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void applyOsuPitch() {
-        // CHỈ chạy khi đã chết VÀ đang trong quá trình fade
         if (!m_fields->m_isDead || !m_fields->m_isFading) {
             return;
         }
@@ -44,7 +43,6 @@ class $modify(MyPlayLayer, PlayLayer) {
 
             if (progress <= 0.0f) {
                 progress = 0.0f;
-                // Kết thúc fade
                 m_fields->m_isFading = false;
                 this->stopActionByTag(m_fields->m_actionTag);
             }
@@ -59,18 +57,18 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        // CHỈ trigger khi chưa chết và đã start level
         if (m_fields->m_hasStarted && !m_fields->m_isDead) {
             m_fields->m_isDead = true;
             m_fields->m_time = 0.0f;
-            m_fields->m_isFading = true;  // Bắt đầu fade
+            m_fields->m_isFading = true;
 
-            // Dừng action cũ nếu có
             this->stopActionByTag(m_fields->m_actionTag);
 
-            // Tạo action lặp để update pitch mỗi frame
+            // Sử dụng CCDelayTime để tạo khoảng delay giữa các lần gọi
+            auto delay = CCDelayTime::create(1.0f / 60.0f);  // ~16.67ms (60 FPS)
             auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
-            auto repeat = CCRepeatForever::create(call);
+            auto seq = CCSequence::create(delay, call, nullptr);
+            auto repeat = CCRepeatForever::create(seq);
             repeat->setTag(m_fields->m_actionTag);
             
             this->runAction(repeat);
@@ -82,7 +80,6 @@ class $modify(MyPlayLayer, PlayLayer) {
     void resetLevel() {
         this->cleanupOsuEffect();
         PlayLayer::resetLevel();
-        // Reset flags khi reset level
         m_fields->m_isDead = false;
         m_fields->m_isFading = false;
         m_fields->m_time = 0.0f;
