@@ -32,8 +32,8 @@ class $modify(MyPlayLayer, PlayLayer) {
         return true;
     }
 
-    void gameUpdate(float dt) {
-        PlayLayer::gameUpdate(dt);
+    void update(float dt) {
+        PlayLayer::update(dt);
         
         if (m_fields->m_hasStarted && !m_fields->m_hasTriggeredDeath) {
             bool isPlayerDead = false;
@@ -102,16 +102,9 @@ class $modify(MyPlayLayer, PlayLayer) {
             log::info("Background music pitch: {}", finalPitch);
         }
         
-        // Set pitch cho tất cả SFX channels
+        // Set pitch cho global channel (SFX)
         if (fmod->m_globalChannel) {
             fmod->m_globalChannel->setPitch(finalPitch);
-        }
-        
-        // Set pitch cho các channel khác nếu cần
-        for (auto& channel : fmod->m_channels) {
-            if (channel && channel != fmod->m_backgroundMusicChannel) {
-                channel->setPitch(finalPitch);
-            }
         }
     }
 
@@ -152,13 +145,6 @@ class $modify(MyPlayLayer, PlayLayer) {
             // Reset global channel
             if (fmod->m_globalChannel) {
                 fmod->m_globalChannel->setPitch(1.0f);
-            }
-            
-            // Reset tất cả các channel khác
-            for (auto& channel : fmod->m_channels) {
-                if (channel) {
-                    channel->setPitch(1.0f);
-                }
             }
         }
     }
