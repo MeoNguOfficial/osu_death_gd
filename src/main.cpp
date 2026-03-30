@@ -5,15 +5,17 @@
 
 using namespace geode::prelude;
 
+// Forward declaration
+class MyPlayLayer;
+
 class $modify(MyPlayerObject, PlayerObject) {
     void playerDestroyed(bool p0) {
         PlayerObject::playerDestroyed(p0);
         
-        // Khi player thực sự bị destroy, trigger từ PlayLayer
         auto playLayer = PlayLayer::get();
         if (playLayer) {
-            // Gọi hàm để trigger death effect
-            static_cast<MyPlayLayer*>(playLayer)->onPlayerReallyDied();
+            auto myPlayLayer = static_cast<MyPlayLayer*>(playLayer);
+            myPlayLayer->onPlayerReallyDied();
         }
     }
 };
@@ -27,7 +29,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         int m_actionTag = 1001;
         bool m_hasStarted = false;
         bool m_isFading = false;
-        bool m_hasTriggeredDeath = false;  // Đánh dấu đã trigger death effect
+        bool m_hasTriggeredDeath = false;
     };
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
@@ -44,7 +46,6 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void onPlayerReallyDied() {
-        // Chỉ trigger khi thực sự chết và chưa trigger
         if (m_fields->m_hasStarted && !m_fields->m_isDead && !m_fields->m_hasTriggeredDeath) {
             m_fields->m_isDead = true;
             m_fields->m_hasTriggeredDeath = true;
@@ -95,7 +96,6 @@ class $modify(MyPlayLayer, PlayLayer) {
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
         PlayLayer::destroyPlayer(player, obj);
-        // Không làm gì ở đây nữa, để PlayerObject::playerDestroyed trigger
     }
 
     void resetLevel() {
