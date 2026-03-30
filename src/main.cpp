@@ -59,28 +59,24 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
-        // 1. Gọi hàm gốc trước để game lo phần nổ nhân vật
-        PlayLayer::destroyPlayer(player, obj);
-
-        // 2. Chạy hiệu ứng của mình
+        // CHỈ trigger khi chưa chết và đã start level
         if (m_fields->m_hasStarted && !m_fields->m_isDead) {
             m_fields->m_isDead = true;
             m_fields->m_time = 0.0f;
-            m_fields->m_isFading = true;
+            m_fields->m_isFading = true;  // Bắt đầu fade
 
+            // Dừng action cũ nếu có
             this->stopActionByTag(m_fields->m_actionTag);
 
-            // Dùng Sequence để có Delay, tránh làm khổ CPU
-            auto delay = CCDelayTime::create(1.0f / 60.0f);
+            // Tạo action lặp để update pitch mỗi frame
             auto call = CCCallFunc::create(this, callfunc_selector(MyPlayLayer::applyOsuPitch));
-            auto seq = CCSequence::create(delay, call, nullptr);
-            auto repeat = CCRepeatForever::create(seq);
-            
+            auto repeat = CCRepeatForever::create(call);
             repeat->setTag(m_fields->m_actionTag);
-            this->runAction(repeat);
             
-            log::info("Osu Death triggered - Starting controlled pitch fade");
+            this->runAction(repeat);
+            log::info("Osu Death triggered - Starting pitch fade");
         }
+        PlayLayer::destroyPlayer(player, obj);
     }
 
     void resetLevel() {
