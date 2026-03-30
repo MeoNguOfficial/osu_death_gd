@@ -11,13 +11,9 @@
     "name": "Osu Death Pitch",
     "developer": "Meo",
     "description": "The music slows down smoothly when you die, just like in osu!",
-    "dependencies": [
-        {
-            "id": "geode.node-ids",
-            "version": ">=v1.20.0",
-            "importance": "required"
-        }
-    ],
+    "dependencies": {
+        "geode.node-ids": ">=v1.20.0"
+    },
     "settings": {
         "fade-speed": {
             "name": "Fade Duration",
