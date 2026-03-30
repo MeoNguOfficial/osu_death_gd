@@ -5,6 +5,37 @@
 
 using namespace geode::prelude;
 
+class $modify(MyFMODAudioEngine, FMODAudioEngine) {
+    static inline float s_customPitch = 1.0f;
+    
+    void update(float dt) {
+        FMODAudioEngine::update(dt);
+        
+        // Apply custom pitch mỗi frame
+        if (s_customPitch != 1.0f) {
+            if (this->m_backgroundMusicChannel) {
+                this->m_backgroundMusicChannel->setPitch(s_customPitch);
+            }
+            if (this->m_globalChannel) {
+                this->m_globalChannel->setPitch(s_customPitch);
+            }
+        }
+    }
+    
+    static void setCustomPitch(float pitch) {
+        s_customPitch = pitch;
+        auto fmod = FMODAudioEngine::sharedEngine();
+        if (fmod) {
+            if (fmod->m_backgroundMusicChannel) {
+                fmod->m_backgroundMusicChannel->setPitch(pitch);
+            }
+            if (fmod->m_globalChannel) {
+                fmod->m_globalChannel->setPitch(pitch);
+            }
+        }
+    }
+};
+
 class $modify(MyPlayLayer, PlayLayer) {
     static inline int priority = -99999;
 
@@ -69,7 +100,7 @@ class $modify(MyPlayLayer, PlayLayer) {
             repeat->setTag(m_fields->m_actionTag);
             
             this->runAction(repeat);
-            log::info("Osu Death triggered - Music and SFX will fade!");
+            log::info("Osu Death triggered - Starting pitch fade!");
         }
     }
 
@@ -77,9 +108,6 @@ class $modify(MyPlayLayer, PlayLayer) {
         if (!m_fields->m_isDead || !m_fields->m_isFading) {
             return;
         }
-
-        auto fmod = FMODAudioEngine::sharedEngine();
-        if (!fmod) return;
         
         auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
         float duration = static_cast<float>(speedValue);
@@ -96,16 +124,9 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         float finalPitch = progress * progress;
         
-        // Set pitch cho BACKGROUND MUSIC
-        if (fmod->m_backgroundMusicChannel) {
-            fmod->m_backgroundMusicChannel->setPitch(finalPitch);
-            log::info("Background music pitch: {}", finalPitch);
-        }
-        
-        // Set pitch cho global channel (SFX)
-        if (fmod->m_globalChannel) {
-            fmod->m_globalChannel->setPitch(finalPitch);
-        }
+        // Sử dụng FMOD hook để set pitch
+        MyFMODAudioEngine::setCustomPitch(finalPitch);
+        log::info("Setting pitch to: {}", finalPitch);
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obj) {
@@ -134,18 +155,8 @@ class $modify(MyPlayLayer, PlayLayer) {
         m_fields->m_isFading = false;
         m_fields->m_time = 0.0f;
 
-        auto fmod = FMODAudioEngine::sharedEngine();
-        if (fmod) {
-            // Reset background music pitch về 1.0
-            if (fmod->m_backgroundMusicChannel) {
-                fmod->m_backgroundMusicChannel->setPitch(1.0f);
-                log::info("Background music pitch reset to 1.0");
-            }
-            
-            // Reset global channel
-            if (fmod->m_globalChannel) {
-                fmod->m_globalChannel->setPitch(1.0f);
-            }
-        }
+        // Reset pitch về 1.0
+        MyFMODAudioEngine::setCustomPitch(1.0f);
+        log::info("Pitch reset to 1.0");
     }
 };
