@@ -5,35 +5,29 @@
 
 using namespace geode::prelude;
 
-// Các biến điều khiển trạng thái hiệu ứng
+// Các biến điều khiển trạng thái hiệu ứng (dùng static global như file mẫu)
 static float s_targetPitch = 1.0f;
 static bool s_isDeadEffect = false;
+static float s_duration = 1.0f;
 
-// 1. Hook FMOD: Nơi xử lý âm thanh tổng thể
-class $modify(MyFMOD, FMODAudioEngine)
+// 1. Hook FMODAudioEngine (giống file mẫu)
+class $modify(MyFMODAudioEngine, FMODAudioEngine) 
 {
-    void update(float dt)
+    void update(float dt) 
     {
-        // Chạy logic gốc trước
+        // Gọi hàm gốc trước
         FMODAudioEngine::update(dt);
 
         if (s_isDeadEffect)
         {
-            // --- ÉP PITCH QUA MASTER CHANNEL GROUP ---
+            // Ép pitch qua master channel group
             if (m_system)
             {
                 FMOD::ChannelGroup* masterGroup = nullptr;
-                // Lấy group tổng quản lý toàn bộ sound/music
-                FMOD_RESULT result = m_system->getMasterChannelGroup(&masterGroup);
-                if (result == FMOD_OK && masterGroup)
+                m_system->getMasterChannelGroup(&masterGroup);
+                if (masterGroup)
                 {
-                    // Ép pitch toàn bộ âm thanh game
                     masterGroup->setPitch(s_targetPitch);
-                }
-                else if (result != FMOD_OK)
-                {
-                    // Không log error để tránh spam, chỉ log khi debug
-                    // log::debug("FMOD result: {}", static_cast<int>(result));
                 }
             }
             
@@ -53,84 +47,64 @@ class $modify(MyFMOD, FMODAudioEngine)
     void stopAllMusic(bool p0)
     {
         if (s_isDeadEffect)
-        {
-            // Không cho stop music khi đang trong effect
             return;
-        }
         FMODAudioEngine::stopAllMusic(p0);
     }
-    
-    // Bỏ pauseBackgroundMusic vì không tồn tại trong GD
 };
 
-// 2. Hook PlayLayer: Quản lý logic thời gian (Timeline) của cú ngã
+// 2. Hook PlayLayer (không dùng Fields)
 class $modify(MyPlayLayer, PlayLayer)
 {
-    struct Fields
-    {
-        bool m_isFading = false;
-    };
-    
     bool init(GJGameLevel *level, bool useReplay, bool dontRun)
     {
         if (!PlayLayer::init(level, useReplay, dontRun))
             return false;
-        this->resetOsuVars();
+        
+        // Reset effect khi vào level mới
+        s_isDeadEffect = false;
+        s_targetPitch = 1.0f;
+        this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
+        
         return true;
     }
 
     void onPlayerReallyDied()
     {
         if (s_isDeadEffect)
-            return; // Tránh gọi trùng lặp
+            return;
 
         s_isDeadEffect = true;
         s_targetPitch = 1.0f;
         
         // Lấy duration từ setting
         auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
-        float duration = (speedValue <= 0.05f) ? 1.0f : static_cast<float>(speedValue);
-        
-        // Lưu duration vào fields để dùng trong update
-        if (m_fields)
-            m_fields->m_isFading = true;
+        s_duration = (speedValue <= 0.05f) ? 1.0f : static_cast<float>(speedValue);
 
-        // Bắt đầu vòng lặp giảm pitch mỗi frame
+        // Bắt đầu schedule
         this->schedule(schedule_selector(MyPlayLayer::updateOsuFade));
         
-        log::info("Osu Death Effect started - Duration: {} seconds", duration);
+        log::info("Osu Death Effect started - Duration: {} seconds", s_duration);
     }
 
     void updateOsuFade(float dt)
     {
         if (!s_isDeadEffect)
         {
-            // Nếu effect đã kết thúc, unschedule
-            if (m_fields && m_fields->m_isFading)
-            {
-                this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
-                if (m_fields)
-                    m_fields->m_isFading = false;
-            }
+            this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
             return;
         }
 
-        auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
-        float duration = (speedValue <= 0.05f) ? 1.0f : static_cast<float>(speedValue);
-        
-        // Giảm pitch dựa trên thời gian thực (dt)
-        float decrement = dt / duration;
+        // Giảm pitch dựa trên dt
+        float decrement = dt / s_duration;
         s_targetPitch -= decrement;
 
         if (s_targetPitch <= 0.01f)
         {
             s_targetPitch = 0.01f;
             s_isDeadEffect = false;
-            if (m_fields)
-                m_fields->m_isFading = false;
             this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
 
-            // Hiệu ứng kết thúc, bây giờ mới thực sự cho nhạc dừng
+            // Dừng nhạc sau khi fade xong
             auto fmod = FMODAudioEngine::sharedEngine();
             if (fmod && fmod->m_backgroundMusicChannel)
             {
@@ -141,62 +115,81 @@ class $modify(MyPlayLayer, PlayLayer)
         }
     }
 
-    // Reset lại mọi thứ khi chơi lại hoặc thoát
     void resetLevel()
     {
-        this->resetOsuVars();
-        PlayLayer::resetLevel();
-    }
-
-    void onQuit()
-    {
-        this->resetOsuVars();
-        PlayLayer::onQuit();
-    }
-
-    void resetOsuVars()
-    {
+        // Reset effect
         s_isDeadEffect = false;
         s_targetPitch = 1.0f;
-        
-        if (m_fields)
-            m_fields->m_isFading = false;
-
-        // Dừng việc giảm pitch đang chạy ngầm
         this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
-
+        
+        // Reset audio
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod)
         {
-            // 1. Trả lại Pitch cho Master Group
             if (fmod->m_system)
             {
                 FMOD::ChannelGroup* masterGroup = nullptr;
-                FMOD_RESULT result = fmod->m_system->getMasterChannelGroup(&masterGroup);
-                if (result == FMOD_OK && masterGroup)
+                fmod->m_system->getMasterChannelGroup(&masterGroup);
+                if (masterGroup)
                 {
                     masterGroup->setPitch(1.0f);
                 }
             }
-
-            // 2. Trả lại trạng thái cho Music Channel
+            
             if (fmod->m_backgroundMusicChannel)
             {
                 fmod->m_backgroundMusicChannel->setPitch(1.0f);
                 fmod->m_backgroundMusicChannel->setVolume(fmod->m_musicVolume);
                 fmod->m_backgroundMusicChannel->setPaused(false);
             }
-
-            // 3. Trả lại Pitch cho SFX (để chắc chắn)
+            
             if (fmod->m_globalChannel)
             {
                 fmod->m_globalChannel->setPitch(1.0f);
             }
         }
+        
+        PlayLayer::resetLevel();
+    }
+
+    void onQuit()
+    {
+        // Reset effect
+        s_isDeadEffect = false;
+        s_targetPitch = 1.0f;
+        this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
+        
+        // Reset audio
+        auto fmod = FMODAudioEngine::sharedEngine();
+        if (fmod)
+        {
+            if (fmod->m_system)
+            {
+                FMOD::ChannelGroup* masterGroup = nullptr;
+                fmod->m_system->getMasterChannelGroup(&masterGroup);
+                if (masterGroup)
+                {
+                    masterGroup->setPitch(1.0f);
+                }
+            }
+            
+            if (fmod->m_backgroundMusicChannel)
+            {
+                fmod->m_backgroundMusicChannel->setPitch(1.0f);
+                fmod->m_backgroundMusicChannel->setPaused(false);
+            }
+            
+            if (fmod->m_globalChannel)
+            {
+                fmod->m_globalChannel->setPitch(1.0f);
+            }
+        }
+        
+        PlayLayer::onQuit();
     }
 };
 
-// 3. Hook PlayerObject: Điểm kích hoạt (Trigger)
+// 3. Hook PlayerObject (giống file mẫu)
 class $modify(MyPlayerObject, PlayerObject)
 {
     void playDeathEffect()
@@ -206,14 +199,7 @@ class $modify(MyPlayerObject, PlayerObject)
         auto playLayer = PlayLayer::get();
         if (playLayer)
         {
-            // Gọi hàm xử lý âm thanh
             static_cast<MyPlayLayer*>(playLayer)->onPlayerReallyDied();
         }
-    }
-
-    void playerDestroyed(bool p0)
-    {
-        PlayerObject::playerDestroyed(p0);
-        // Không cần làm gì thêm vì playDeathEffect đã trigger effect
     }
 };
