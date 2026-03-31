@@ -1,7 +1,6 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/FMODAudioEngine.hpp>
-#include <Geode/modify/PlayerObject.hpp>
 
 using namespace geode::prelude;
 
@@ -11,30 +10,24 @@ static float s_duration = 1.0f;
 
 class $modify(MyFMODAudioEngine, FMODAudioEngine) {
     void update(float dt) {
-        // Chạy update gốc trước
         FMODAudioEngine::update(dt);
 
         if (!s_isDeadEffect) return;
 
-        // 1. ÉP PITCH TOÀN HỆ THỐNG (Dùng cho cả SFX và Music)
+        // 1. Ép Pitch Master (Dùng cho cả game)
         if (m_system) {
             FMOD::ChannelGroup* masterGroup = nullptr;
             m_system->getMasterChannelGroup(&masterGroup);
-            if (masterGroup) {
-                masterGroup->setPitch(s_targetPitch);
-            }
+            if (masterGroup) masterGroup->setPitch(s_targetPitch);
         }
 
-        // 2. ÉP MUSIC CHANNEL (Chiến thuật cho 2.2081)
+        // 2. Hồi sinh Music Channel từ cõi chết
         if (m_backgroundMusicChannel) {
-            // Ép Pitch riêng cho Music để chắc cú
-            m_backgroundMusicChannel->setPitch(s_targetPitch);
-            
-            // ÉP VOLUME: Vì không hook được setBackgroundMusicVolume, ta ép trực tiếp ở đây
-            // this->m_musicVolume là biến chứa âm lượng nhạc người dùng cài đặt
+            // Ép Volume bằng giá trị gốc của người dùng
             m_backgroundMusicChannel->setVolume(this->m_musicVolume);
+            m_backgroundMusicChannel->setPitch(s_targetPitch);
 
-            // CHỐNG PAUSE: Nếu GD ra lệnh Pause khi chết, ta bật lại ngay
+            // Kiểm tra Pause
             bool isPaused = false;
             m_backgroundMusicChannel->getPaused(&isPaused);
             if (isPaused && s_targetPitch > 0.05f) {
@@ -43,9 +36,9 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine) {
         }
     }
 
-    // Hook hàm này thường an toàn hơn vì nó ít bị inline
+    // Chặn tuyệt đối lệnh dừng nhạc
     void stopAllMusic(bool p0) {
-        if (s_isDeadEffect) return; // Chặn đứng lệnh dừng nhạc khi đang hẻo
+        if (s_isDeadEffect) return;
         FMODAudioEngine::stopAllMusic(p0);
     }
 };
@@ -56,35 +49,25 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         s_isDeadEffect = true;
         s_targetPitch = 1.0f;
-
-        auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
-        s_duration = static_cast<float>(speedValue);
-        if (s_duration < 0.1f) s_duration = 1.0f;
-
-        // "Mồi" một lệnh Resume ngay khi vừa chạm gai
-        auto fmod = FMODAudioEngine::sharedEngine();
-        if (fmod && fmod->m_backgroundMusicChannel) {
-            fmod->m_backgroundMusicChannel->setPaused(false);
-            fmod->m_backgroundMusicChannel->setVolume(fmod->m_musicVolume);
-        }
+        
+        auto speed = Mod::get()->getSettingValue<double>("fade-speed");
+        s_duration = static_cast<float>(speed);
 
         this->schedule(schedule_selector(MyPlayLayer::updateOsuFade));
     }
 
     void updateOsuFade(float dt) {
         if (!s_isDeadEffect) return;
-
         s_targetPitch -= (dt / s_duration);
 
         if (s_targetPitch <= 0.01f) {
             s_targetPitch = 0.01f;
             s_isDeadEffect = false;
             this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
-
-            // Chỉ khi hiệu ứng kết thúc mới cho nhạc dừng
+            
+            // Xong hiệu ứng mới cho Pause
             if (auto fmod = FMODAudioEngine::sharedEngine()) {
-                if (fmod->m_backgroundMusicChannel)
-                    fmod->m_backgroundMusicChannel->setPaused(true);
+                if (fmod->m_backgroundMusicChannel) fmod->m_backgroundMusicChannel->setPaused(true);
             }
         }
     }
@@ -93,34 +76,20 @@ class $modify(MyPlayLayer, PlayLayer) {
         s_isDeadEffect = false;
         s_targetPitch = 1.0f;
         this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
-
-        auto fmod = FMODAudioEngine::sharedEngine();
-        if (fmod) {
+        
+        if (auto fmod = FMODAudioEngine::sharedEngine()) {
             if (fmod->m_system) {
-                FMOD::ChannelGroup* masterGroup = nullptr;
-                fmod->m_system->getMasterChannelGroup(&masterGroup);
-                if (masterGroup) masterGroup->setPitch(1.0f);
+                FMOD::ChannelGroup* mg = nullptr;
+                fmod->m_system->getMasterChannelGroup(&mg);
+                if (mg) mg->setPitch(1.0f);
             }
             if (fmod->m_backgroundMusicChannel) {
                 fmod->m_backgroundMusicChannel->setPitch(1.0f);
-                fmod->m_backgroundMusicChannel->setVolume(fmod->m_musicVolume);
                 fmod->m_backgroundMusicChannel->setPaused(false);
             }
         }
     }
 
-    // Hook thêm resetLevel để chắc chắn âm thanh quay lại bình thường
-    void resetLevel() {
-        this->resetOsuVars();
-        PlayLayer::resetLevel();
-    }
-};
-
-class $modify(MyPlayerObject, PlayerObject) {
-    void playDeathEffect() {
-        PlayerObject::playDeathEffect();
-        if (auto pl = PlayLayer::get()) {
-            static_cast<MyPlayLayer*>(pl)->onPlayerReallyDied();
-        }
-    }
+    void resetLevel() { resetOsuVars(); PlayLayer::resetLevel(); }
+    void onQuit() { resetOsuVars(); PlayLayer::onQuit(); }
 };
