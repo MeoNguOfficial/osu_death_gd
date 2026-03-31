@@ -2,18 +2,29 @@
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/FMODAudioEngine.hpp>
 #include <Geode/modify/PlayerObject.hpp>
+#include <chrono> // Thư viện thời gian thực
 
 using namespace geode::prelude;
 
-// --- State toàn cục ---
 static float s_targetPitch = 1.0f;
 static bool s_isDeadEffect = false;
 static float s_duration = 1.0f;
+// Lưu thời điểm bắt đầu hiệu ứng
+static std::chrono::steady_clock::time_point s_startTime;
 
 class $modify(MyFMODAudioEngine, FMODAudioEngine) {
     void update(float dt) {
         FMODAudioEngine::update(dt);
+
         if (!s_isDeadEffect) return;
+
+        // Tính toán Pitch dựa trên thời gian thực trôi qua
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - s_startTime).count() / 1000.0f;
+        
+        // Công thức: Pitch giảm dần từ 1.0 về 0.01 dựa trên thời gian thực
+        s_targetPitch = 1.0f - (elapsed / s_duration);
+        if (s_targetPitch < 0.01f) s_targetPitch = 0.01f;
 
         // 1. ÉP PITCH MASTER (SFX)
         if (m_system) {
@@ -22,31 +33,20 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine) {
             if (masterGroup) masterGroup->setPitch(s_targetPitch);
         }
 
-        // 2. TRỊ MUSIC (Cưỡng chế tầng sâu)
+        // 2. ÉP MUSIC (Dùng Safe Cast cho 2.2081)
         if (m_backgroundMusicChannel) {
-            // Ép Volume và Pitch trực tiếp vào Channel
-            m_backgroundMusicChannel->setVolume(this->m_musicVolume);
+            auto channel = reinterpret_cast<FMOD::Channel*>(m_backgroundMusicChannel);
             m_backgroundMusicChannel->setPitch(s_targetPitch);
+            m_backgroundMusicChannel->setVolume(this->m_musicVolume);
 
-            // TÌM GROUP: Nếu channel bị ngắt, ta tìm Group của nó để "kéo" lại
             FMOD::ChannelGroup* musicGroup = nullptr;
-            m_backgroundMusicChannel->getChannelGroup(&musicGroup);
-            if (musicGroup) {
+            if (channel && channel->getChannelGroup(&musicGroup) == FMOD_OK && musicGroup) {
                 musicGroup->setPitch(s_targetPitch);
-                musicGroup->setVolume(this->m_musicVolume);
-                musicGroup->setPaused(false); // Ép Group phải phát
-            }
-
-            // CHỐNG STOP: Ép channel không được ở trạng thái Pause
-            bool isPaused = false;
-            m_backgroundMusicChannel->getPaused(&isPaused);
-            if (isPaused && s_targetPitch > 0.05f) {
-                m_backgroundMusicChannel->setPaused(false);
+                musicGroup->setPaused(false);
             }
         }
     }
 
-    // Chặn lệnh dừng nhạc từ GD
     void stopAllMusic(bool p0) {
         if (s_isDeadEffect) return;
         FMODAudioEngine::stopAllMusic(p0);
@@ -56,32 +56,27 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine) {
 class $modify(MyPlayLayer, PlayLayer) {
     void onPlayerReallyDied() {
         if (s_isDeadEffect) return;
+
         s_isDeadEffect = true;
         s_targetPitch = 1.0f;
-        
-        auto speed = Mod::get()->getSettingValue<double>("fade-speed");
-        s_duration = static_cast<float>(speed);
+        s_startTime = std::chrono::steady_clock::now(); // Ghi lại lúc chết
 
-        // Kích hoạt ngay lập tức
-        auto fmod = FMODAudioEngine::sharedEngine();
-        if (fmod && fmod->m_backgroundMusicChannel) {
-            fmod->m_backgroundMusicChannel->setPaused(false);
-            fmod->m_backgroundMusicChannel->setVolume(fmod->m_musicVolume);
-        }
-        this->schedule(schedule_selector(MyPlayLayer::updateOsuFade));
+        auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
+        s_duration = static_cast<float>(speedValue);
+        if (s_duration < 0.1f) s_duration = 1.0f;
+
+        this->schedule(schedule_selector(MyPlayLayer::checkEffectEnd));
     }
 
-    void updateOsuFade(float dt) {
-        if (!s_isDeadEffect) return;
-        s_targetPitch -= (dt / s_duration);
-
+    // Hàm này chỉ để kiểm tra khi nào thì dừng hiệu ứng
+    void checkEffectEnd(float dt) {
         if (s_targetPitch <= 0.01f) {
-            s_targetPitch = 0.01f;
             s_isDeadEffect = false;
-            this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
-            
+            this->unschedule(schedule_selector(MyPlayLayer::checkEffectEnd));
+
             if (auto fmod = FMODAudioEngine::sharedEngine()) {
-                if (fmod->m_backgroundMusicChannel) fmod->m_backgroundMusicChannel->setPaused(true);
+                if (fmod->m_backgroundMusicChannel)
+                    fmod->m_backgroundMusicChannel->setPaused(true);
             }
         }
     }
@@ -89,8 +84,8 @@ class $modify(MyPlayLayer, PlayLayer) {
     void resetOsuVars() {
         s_isDeadEffect = false;
         s_targetPitch = 1.0f;
-        this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
-        
+        this->unschedule(schedule_selector(MyPlayLayer::checkEffectEnd));
+
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod) {
             if (fmod->m_system) {
@@ -105,8 +100,8 @@ class $modify(MyPlayLayer, PlayLayer) {
         }
     }
 
-    void resetLevel() { resetOsuVars(); PlayLayer::resetLevel(); }
-    void onQuit() { resetOsuVars(); PlayLayer::onQuit(); }
+    void resetLevel() { this->resetOsuVars(); PlayLayer::resetLevel(); }
+    void onQuit() { this->resetOsuVars(); PlayLayer::onQuit(); }
 };
 
 class $modify(MyPlayerObject, PlayerObject) {
