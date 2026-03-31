@@ -5,19 +5,18 @@
 
 using namespace geode::prelude;
 
-// --- Trạng thái toàn cục ---
 static float s_targetPitch = 1.0f;
 static bool s_isDeadEffect = false;
 static float s_duration = 1.0f;
 
-// --- 1. Hook FMOD: Ép nhạc phải phát ---
 class $modify(MyFMODAudioEngine, FMODAudioEngine) {
     void update(float dt) {
+        // Chạy update gốc trước
         FMODAudioEngine::update(dt);
 
         if (!s_isDeadEffect) return;
 
-        // ÉP PITCH MASTER (Dành cho SFX và toàn bộ âm thanh game)
+        // 1. ÉP PITCH TOÀN HỆ THỐNG (Dùng cho cả SFX và Music)
         if (m_system) {
             FMOD::ChannelGroup* masterGroup = nullptr;
             m_system->getMasterChannelGroup(&masterGroup);
@@ -26,15 +25,16 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine) {
             }
         }
 
-        // ÉP MUSIC: Chiến thuật cưỡng chế cho 2.2081
+        // 2. ÉP MUSIC CHANNEL (Chiến thuật cho 2.2081)
         if (m_backgroundMusicChannel) {
-            // 1. Ép Pitch riêng cho Music
+            // Ép Pitch riêng cho Music để chắc cú
             m_backgroundMusicChannel->setPitch(s_targetPitch);
             
-            // 2. Ép Volume (Quan trọng: dùng trực tiếp m_musicVolume của engine)
+            // ÉP VOLUME: Vì không hook được setBackgroundMusicVolume, ta ép trực tiếp ở đây
+            // this->m_musicVolume là biến chứa âm lượng nhạc người dùng cài đặt
             m_backgroundMusicChannel->setVolume(this->m_musicVolume);
 
-            // 3. Chống Pause: Nếu GD cố tình pause nhạc khi chết, ta resume lại ngay
+            // CHỐNG PAUSE: Nếu GD ra lệnh Pause khi chết, ta bật lại ngay
             bool isPaused = false;
             m_backgroundMusicChannel->getPaused(&isPaused);
             if (isPaused && s_targetPitch > 0.05f) {
@@ -43,36 +43,29 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine) {
         }
     }
 
-    // Chặn lệnh dừng nhạc hoàn toàn
+    // Hook hàm này thường an toàn hơn vì nó ít bị inline
     void stopAllMusic(bool p0) {
-        if (s_isDeadEffect) return;
+        if (s_isDeadEffect) return; // Chặn đứng lệnh dừng nhạc khi đang hẻo
         FMODAudioEngine::stopAllMusic(p0);
     }
 };
 
-// --- 2. Hook PlayLayer: Quản lý Fade Timeline ---
 class $modify(MyPlayLayer, PlayLayer) {
-    bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
-        if (!PlayLayer::init(level, useReplay, dontRun)) return false;
-        this->resetOsuVars();
-        return true;
-    }
-
     void onPlayerReallyDied() {
         if (s_isDeadEffect) return;
 
         s_isDeadEffect = true;
         s_targetPitch = 1.0f;
 
-        // Lấy speed từ settings mod.json của Mèo
         auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
         s_duration = static_cast<float>(speedValue);
         if (s_duration < 0.1f) s_duration = 1.0f;
 
-        // Kích hoạt Resume nhạc ngay lập tức lúc vừa chạm gai
+        // "Mồi" một lệnh Resume ngay khi vừa chạm gai
         auto fmod = FMODAudioEngine::sharedEngine();
         if (fmod && fmod->m_backgroundMusicChannel) {
             fmod->m_backgroundMusicChannel->setPaused(false);
+            fmod->m_backgroundMusicChannel->setVolume(fmod->m_musicVolume);
         }
 
         this->schedule(schedule_selector(MyPlayLayer::updateOsuFade));
@@ -81,7 +74,6 @@ class $modify(MyPlayLayer, PlayLayer) {
     void updateOsuFade(float dt) {
         if (!s_isDeadEffect) return;
 
-        // Giảm tuyến tính mượt mà
         s_targetPitch -= (dt / s_duration);
 
         if (s_targetPitch <= 0.01f) {
@@ -89,7 +81,7 @@ class $modify(MyPlayLayer, PlayLayer) {
             s_isDeadEffect = false;
             this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
 
-            // Hiệu ứng xong rồi mới cho phép nhạc dừng
+            // Chỉ khi hiệu ứng kết thúc mới cho nhạc dừng
             if (auto fmod = FMODAudioEngine::sharedEngine()) {
                 if (fmod->m_backgroundMusicChannel)
                     fmod->m_backgroundMusicChannel->setPaused(true);
@@ -117,11 +109,13 @@ class $modify(MyPlayLayer, PlayLayer) {
         }
     }
 
-    void resetLevel() { this->resetOsuVars(); PlayLayer::resetLevel(); }
-    void onQuit() { this->resetOsuVars(); PlayLayer::onQuit(); }
+    // Hook thêm resetLevel để chắc chắn âm thanh quay lại bình thường
+    void resetLevel() {
+        this->resetOsuVars();
+        PlayLayer::resetLevel();
+    }
 };
 
-// --- 3. Hook PlayerObject: Kích hoạt ---
 class $modify(MyPlayerObject, PlayerObject) {
     void playDeathEffect() {
         PlayerObject::playDeathEffect();
