@@ -12,10 +12,6 @@ static float s_targetPitch = 1.0f;
 static bool s_isDeadEffect = false;
 static float s_duration = 1.0f;
 
-// 🔥 Frequency fallback
-static float s_originalFreq = 0.f;
-static bool s_hasFreq = false;
-
 // =========================
 // FMOD HOOK
 // =========================
@@ -29,7 +25,7 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine)
             return;
 
         // =========================
-        // 1. SFX (master)
+        // 1. SFX (master group)
         // =========================
         if (m_system)
         {
@@ -47,22 +43,9 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine)
         // =========================
         if (m_backgroundMusicChannel)
         {
-            // Lưu frequency gốc (1 lần)
-            if (!s_hasFreq)
-            {
-                m_backgroundMusicChannel->getFrequency(&s_originalFreq);
-                s_hasFreq = true;
-            }
-
             // 🔥 Double set để chống override
             m_backgroundMusicChannel->setPitch(s_targetPitch);
             m_backgroundMusicChannel->setPitch(s_targetPitch);
-
-            // 🔥 Fallback mạnh (custom song / stream)
-            if (s_originalFreq > 0.0f)
-            {
-                m_backgroundMusicChannel->setFrequency(s_originalFreq * s_targetPitch);
-            }
 
             // Đảm bảo không bị pause
             bool isPaused = false;
@@ -103,9 +86,8 @@ class $modify(MyPlayLayer, PlayLayer)
 
         s_isDeadEffect = false;
         s_targetPitch = 1.0f;
-        s_hasFreq = false;
-
         this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
+        
         return true;
     }
 
@@ -116,7 +98,6 @@ class $modify(MyPlayLayer, PlayLayer)
 
         s_isDeadEffect = true;
         s_targetPitch = 1.0f;
-        s_hasFreq = false;
 
         auto speedValue = Mod::get()->getSettingValue<double>("fade-speed");
         s_duration = (speedValue <= 0.05f) ? 1.0f : static_cast<float>(speedValue);
@@ -134,7 +115,7 @@ class $modify(MyPlayLayer, PlayLayer)
             return;
         }
 
-        // 🔥 Exponential fade (mượt hơn linear)
+        // Exponential fade (mượt hơn linear)
         float factor = dt / s_duration;
         s_targetPitch -= s_targetPitch * factor;
 
@@ -142,7 +123,6 @@ class $modify(MyPlayLayer, PlayLayer)
         {
             s_targetPitch = 0.01f;
             s_isDeadEffect = false;
-
             this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
 
             auto fmod = FMODAudioEngine::sharedEngine();
@@ -159,8 +139,6 @@ class $modify(MyPlayLayer, PlayLayer)
     {
         s_isDeadEffect = false;
         s_targetPitch = 1.0f;
-        s_hasFreq = false;
-
         this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
 
         auto fmod = FMODAudioEngine::sharedEngine();
@@ -195,8 +173,6 @@ class $modify(MyPlayLayer, PlayLayer)
     {
         s_isDeadEffect = false;
         s_targetPitch = 1.0f;
-        s_hasFreq = false;
-
         this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
 
         auto fmod = FMODAudioEngine::sharedEngine();
