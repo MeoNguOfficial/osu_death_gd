@@ -12,17 +12,15 @@ namespace OsuFail
     static float time     = 0.0f;
     static float duration = 1.0f;
 
-    // Giá trị gốc lúc bắt đầu effect
+    // Giá trị gốc để khôi phục chính xác
     static float startMusicPitch  = 1.0f;
     static float startSfxPitch    = 1.0f;
     static float startMusicVolume = 1.0f;
     static float startSfxVolume   = 1.0f;
 
-    // Target cuối (pitch+volume xuống thấp để tạo méo)
-    static constexpr float END_PITCH  = 0.2f;
+    static constexpr float END_PITCH  = 0.15f; // Giảm sâu hơn để nghe rõ hiệu ứng "méo"
     static constexpr float END_VOLUME = 0.0f;
 
-    // Easing: ease-out cubic — nhanh lúc đầu, chậm dần
     float easeOut(float t)
     {
         return 1.0f - powf(1.0f - t, 3.0f);
@@ -31,19 +29,19 @@ namespace OsuFail
     void applyEffect()
     {
         auto* fmod = FMODAudioEngine::sharedEngine();
-        if (!fmod) return;
+        // Kiểm tra an toàn: Đảm bảo engine và các channel tồn tại
+        if (!fmod || !fmod->m_backgroundMusicChannel || !fmod->m_globalChannel) return;
 
         float t = std::min(time / duration, 1.0f);
         float k = easeOut(t);
 
-        // Pitch giảm dần (tạo hiệu ứng "chậm lại + méo")
-        float musicPitch = startMusicPitch  - (startMusicPitch  - END_PITCH)  * k;
-        float sfxPitch   = startSfxPitch    - (startSfxPitch    - END_PITCH)  * k;
-
-        // Volume giảm dần về 0
+        // Tính toán giá trị mới
+        float musicPitch = startMusicPitch - (startMusicPitch - END_PITCH) * k;
+        float sfxPitch   = startSfxPitch   - (startSfxPitch   - END_PITCH) * k;
         float musicVol   = startMusicVolume - (startMusicVolume - END_VOLUME) * k;
         float sfxVol     = startSfxVolume   - (startSfxVolume   - END_VOLUME) * k;
 
+        // Áp dụng trực tiếp vào Channel qua FMOD API (định nghĩa trong FMOD.bro)
         fmod->m_backgroundMusicChannel->setPitch(musicPitch);
         fmod->m_globalChannel->setPitch(sfxPitch);
 
@@ -53,38 +51,41 @@ namespace OsuFail
 
     void start(float dur)
     {
-        if (active) return; // không restart nếu đang chạy
+        if (active) return;
 
         auto* fmod = FMODAudioEngine::sharedEngine();
-        if (!fmod) return;
+        if (!fmod || !fmod->m_backgroundMusicChannel || !fmod->m_globalChannel) return;
 
-        // Lưu pitch + volume hiện tại trước khi modify
+        // Lấy Pitch/Volume thực tế tại thời điểm chết thay vì dùng biến m_musicVolume
+        // Điều này giúp hiệu ứng mượt mà kể cả khi người dùng đang chỉnh volume trong game
         fmod->m_backgroundMusicChannel->getPitch(&startMusicPitch);
         fmod->m_globalChannel->getPitch(&startSfxPitch);
-
-        startMusicVolume = fmod->m_musicVolume;
-        startSfxVolume   = fmod->m_sfxVolume;
+        
+        fmod->m_backgroundMusicChannel->getVolume(&startMusicVolume);
+        fmod->m_globalChannel->getVolume(&startSfxVolume);
 
         active   = true;
         time     = 0.0f;
-        duration = (dur > 0.05f) ? dur : 1.0f;
+        duration = (dur > 0.01f) ? dur : 1.0f;
     }
 
     void reset()
     {
+        if (!active && time == 0.0f) return;
+
         active = false;
         time   = 0.0f;
 
         auto* fmod = FMODAudioEngine::sharedEngine();
         if (!fmod) return;
 
-        // Restore pitch về 1.0 — volume sẽ do GD tự quản lý qua resetLevel
-        fmod->m_backgroundMusicChannel->setPitch(1.0f);
-        fmod->m_globalChannel->setPitch(1.0f);
+        // Khôi phục Pitch về mặc định
+        if (fmod->m_backgroundMusicChannel) fmod->m_backgroundMusicChannel->setPitch(1.0f);
+        if (fmod->m_globalChannel) fmod->m_globalChannel->setPitch(1.0f);
 
-        // Restore volume về giá trị setting của game (không hardcode 1.0)
-        fmod->m_backgroundMusicChannel->setVolume(fmod->m_musicVolume);
-        fmod->m_globalChannel->setVolume(fmod->m_sfxVolume);
+        // Khôi phục Volume về cài đặt của người dùng (đọc từ biến m_musicVolume của engine)
+        if (fmod->m_backgroundMusicChannel) fmod->m_backgroundMusicChannel->setVolume(fmod->m_musicVolume);
+        if (fmod->m_globalChannel) fmod->m_globalChannel->setVolume(fmod->m_sfxVolume);
     }
 }
 
@@ -93,57 +94,45 @@ namespace OsuFail
 // =============================================
 class $modify(MyPlayLayer, PlayLayer)
 {
-    // Tick effect mỗi frame
     void update(float dt)
     {
         PlayLayer::update(dt);
 
-        if (!OsuFail::active) return;
+        if (OsuFail::active) {
+            OsuFail::time += dt;
+            OsuFail::applyEffect();
 
-        OsuFail::time += dt;
-        OsuFail::applyEffect();
-
-        if (OsuFail::time >= OsuFail::duration)
-            OsuFail::active = false;
-        // pitch+volume giữ ở mức thấp cho đến khi resetLevel/onQuit restore
+            if (OsuFail::time >= OsuFail::duration) {
+                OsuFail::active = false;
+            }
+        }
     }
 
-    // ✅ Trigger death effect — bind đầy đủ trên Windows (0x3b39d0)
     void destroyPlayer(PlayerObject* player, GameObject* object)
     {
         PlayLayer::destroyPlayer(player, object);
 
-        // Chỉ trigger cho player1 hoặc player2 thật
+        // Kiểm tra đúng player bị chết
         if (player != m_player1 && player != m_player2) return;
-
-        // Không trigger nếu level đã complete
         if (m_hasCompletedLevel) return;
 
-        // Không trigger lại nếu effect đang chạy
-        if (OsuFail::active) return;
-
-        float dur = 1.0f;
-        if (auto* mod = Mod::get())
-            dur = static_cast<float>(mod->getSettingValue<double>("fade-speed"));
-
-        OsuFail::start(dur);
+        // Lấy setting từ Mod
+        double fadeSpeed = Mod::get()->getSettingValue<double>("fade-speed");
+        OsuFail::start(static_cast<float>(fadeSpeed));
     }
 
-    // Reset khi respawn
     void resetLevel()
     {
         OsuFail::reset();
         PlayLayer::resetLevel();
     }
 
-    // Reset khi vào level
     bool init(GJGameLevel* level, bool useReplay, bool dontRun)
     {
         OsuFail::reset();
         return PlayLayer::init(level, useReplay, dontRun);
     }
 
-    // Reset khi thoát
     void onQuit()
     {
         OsuFail::reset();
