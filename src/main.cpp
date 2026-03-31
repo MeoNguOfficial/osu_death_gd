@@ -9,30 +9,33 @@ using namespace geode::prelude;
 static float s_targetPitch = 1.0f;
 static bool s_isDeadEffect = false;
 
-// 1. Hook FMOD: Trái tim của bản mod, dùng để ép engine âm thanh
+// 1. Hook FMOD: Nơi xử lý âm thanh tổng thể
 class $modify(MyFMOD, FMODAudioEngine) {
     void update(float dt) {
+        // Chạy logic gốc trước
         FMODAudioEngine::update(dt);
 
         if (s_isDeadEffect) {
-            if (m_backgroundMusicChannel) {
-                // 1. Ép Pitch theo tiến trình chết
-                m_backgroundMusicChannel->setPitch(s_targetPitch);
-                
-                // 2. Fix lỗi âm lượng: Sử dụng m_musicVolume thay vì 1.0f
-                // Điều này giúp âm lượng không bị nhảy lên mức cao nhất
-                m_backgroundMusicChannel->setVolume(this->m_musicVolume); 
+            // --- ĐOẠN THAY THẾ/BỔ SUNG Ở ĐÂY ---
+            if (m_system) {
+                FMOD::ChannelGroup* masterGroup;
+                // Lấy group tổng quản lý toàn bộ sound/music
+                m_system->getMasterChannelGroup(&masterGroup); 
+                if (masterGroup) {
+                    // Ép pitch toàn bộ âm thanh game theo biến s_targetPitch
+                    masterGroup->setPitch(s_targetPitch);
+                }
+            }
+            // ------------------------------------
 
-                // 3. Ép Resume: Phải liên tục kiểm tra vì GD sẽ Pause nhạc ở frame tiếp theo
+            // Bạn vẫn nên giữ đoạn ép Resume cho Music để chắc chắn nhạc không dừng
+            if (m_backgroundMusicChannel) {
+                m_backgroundMusicChannel->setVolume(this->m_musicVolume);
                 bool isPaused;
                 m_backgroundMusicChannel->getPaused(&isPaused);
                 if (isPaused && s_targetPitch > 0.05f) {
                     m_backgroundMusicChannel->setPaused(false);
                 }
-            }
-
-            if (m_globalChannel) {
-                m_globalChannel->setPitch(s_targetPitch);
             }
         }
     }
