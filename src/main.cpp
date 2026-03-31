@@ -29,15 +29,11 @@ class $modify(MyFMOD, FMODAudioEngine)
                 {
                     // Ép pitch toàn bộ âm thanh game
                     masterGroup->setPitch(s_targetPitch);
-                    
-                    // Debug: in ra pitch hiện tại (có thể bỏ comment nếu cần debug)
-                    // float currentPitch;
-                    // masterGroup->getPitch(&currentPitch);
-                    // log::debug("Master group pitch: {}", currentPitch);
                 }
-                else
+                else if (result != FMOD_OK)
                 {
-                    log::error("Failed to get master channel group, result: {}", result);
+                    // Không log error để tránh spam, chỉ log khi debug
+                    // log::debug("FMOD result: {}", static_cast<int>(result));
                 }
             }
             
@@ -64,15 +60,7 @@ class $modify(MyFMOD, FMODAudioEngine)
         FMODAudioEngine::stopAllMusic(p0);
     }
     
-    // Thêm hook pauseBackgroundMusic để đảm bảo không bị gián đoạn
-    void pauseBackgroundMusic()
-    {
-        if (s_isDeadEffect)
-        {
-            return;
-        }
-        FMODAudioEngine::pauseBackgroundMusic();
-    }
+    // Bỏ pauseBackgroundMusic vì không tồn tại trong GD
 };
 
 // 2. Hook PlayLayer: Quản lý logic thời gian (Timeline) của cú ngã
@@ -104,7 +92,8 @@ class $modify(MyPlayLayer, PlayLayer)
         float duration = (speedValue <= 0.05f) ? 1.0f : static_cast<float>(speedValue);
         
         // Lưu duration vào fields để dùng trong update
-        m_fields->m_isFading = true;
+        if (m_fields)
+            m_fields->m_isFading = true;
 
         // Bắt đầu vòng lặp giảm pitch mỗi frame
         this->schedule(schedule_selector(MyPlayLayer::updateOsuFade));
@@ -117,10 +106,11 @@ class $modify(MyPlayLayer, PlayLayer)
         if (!s_isDeadEffect)
         {
             // Nếu effect đã kết thúc, unschedule
-            if (m_fields->m_isFading)
+            if (m_fields && m_fields->m_isFading)
             {
                 this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
-                m_fields->m_isFading = false;
+                if (m_fields)
+                    m_fields->m_isFading = false;
             }
             return;
         }
@@ -136,7 +126,8 @@ class $modify(MyPlayLayer, PlayLayer)
         {
             s_targetPitch = 0.01f;
             s_isDeadEffect = false;
-            m_fields->m_isFading = false;
+            if (m_fields)
+                m_fields->m_isFading = false;
             this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
 
             // Hiệu ứng kết thúc, bây giờ mới thực sự cho nhạc dừng
@@ -148,13 +139,6 @@ class $modify(MyPlayLayer, PlayLayer)
             
             log::info("Osu Death Effect finished");
         }
-        
-        // Debug log mỗi 30 frame (có thể bỏ comment nếu cần)
-        // static int frameCount = 0;
-        // if (++frameCount % 30 == 0)
-        // {
-        //     log::debug("Target pitch: {}", s_targetPitch);
-        // }
     }
 
     // Reset lại mọi thứ khi chơi lại hoặc thoát
