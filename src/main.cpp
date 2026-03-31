@@ -15,15 +15,15 @@ class $modify(MyFMOD, FMODAudioEngine) {
         FMODAudioEngine::update(dt);
 
         if (s_isDeadEffect) {
-            // Xử lý nhạc nền (Background Music)
             if (m_backgroundMusicChannel) {
-                // Ép Pitch giảm dần theo biến static
+                // 1. Ép Pitch theo tiến trình chết
                 m_backgroundMusicChannel->setPitch(s_targetPitch);
                 
-                // Ép Volume luôn ở mức 1.0 (Zikko dùng cách này để nhạc không bị tắt đột ngột)
-                m_backgroundMusicChannel->setVolume(1.0f); 
+                // 2. Fix lỗi âm lượng: Sử dụng m_musicVolume thay vì 1.0f
+                // Điều này giúp âm lượng không bị nhảy lên mức cao nhất
+                m_backgroundMusicChannel->setVolume(this->m_musicVolume); 
 
-                // CHỐNG PAUSE: Nếu game cố tình dừng nhạc khi chết, ta Resume nó lại ngay
+                // 3. Ép Resume: Phải liên tục kiểm tra vì GD sẽ Pause nhạc ở frame tiếp theo
                 bool isPaused;
                 m_backgroundMusicChannel->getPaused(&isPaused);
                 if (isPaused && s_targetPitch > 0.05f) {
@@ -31,14 +31,12 @@ class $modify(MyFMOD, FMODAudioEngine) {
                 }
             }
 
-            // Xử lý SFX (Tiếng nổ, tiếng click...)
             if (m_globalChannel) {
                 m_globalChannel->setPitch(s_targetPitch);
             }
         }
     }
 
-    // Chặn hàm dừng nhạc mặc định của GD khi s_isDeadEffect đang chạy
     void stopAllMusic(bool p0) {
         if (s_isDeadEffect) return; 
         FMODAudioEngine::stopAllMusic(p0);
@@ -112,18 +110,16 @@ class $modify(MyPlayLayer, PlayLayer) {
 
 // 3. Hook PlayerObject: Điểm kích hoạt (Trigger)
 class $modify(MyPlayerObject, PlayerObject) {
-    // Chúng ta dùng playDeathEffect vì nó chuẩn xác nhất cho âm thanh
     void playDeathEffect() {
         PlayerObject::playDeathEffect();
         
         if (auto playLayer = PlayLayer::get()) {
-            // Gọi trực tiếp thông qua cast để đảm bảo không lỗi tham chiếu
+            // Sử dụng static_cast để gọi hàm xử lý âm thanh
             static_cast<MyPlayLayer*>(playLayer)->onPlayerReallyDied();
         }
     }
     
-    // Giữ lại playerDestroyed nhưng không cần gọi thêm onPlayerReallyDied ở đây
-    // để tránh việc trigger 2 lần gây lag hoặc lỗi pitch
+    // Đảm bảo không có code thừa đè lên s_isDeadEffect ở đây
     void playerDestroyed(bool p0) {
         PlayerObject::playerDestroyed(p0);
     }
