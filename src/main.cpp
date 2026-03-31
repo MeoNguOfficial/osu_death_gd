@@ -1,39 +1,47 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
-#include <Geode/modify/PlayerObject.hpp>
+#include <Geode/modify/GJBaseGameLayer.hpp>
 
 using namespace geode::prelude;
 
 namespace OsuFail
 {
-    static bool active = false;
-    static float time = 0.0f;
+    static bool active   = false;
+    static float time    = 0.0f;
     static float duration = 1.0f;
 
     static float startMusicPitch = 1.0f;
     static float startSfxPitch   = 1.0f;
-    static float endPitch        = 0.3f;
+    static const float endPitch  = 0.3f;
 
     float easeOut(float t)
     {
         return 1.0f - powf(1.0f - t, 3.0f);
     }
 
-    float getPitch()
-    {
-        float t = time / duration;
-        if (t > 1.0f) t = 1.0f;
-        float k = easeOut(t);
-        // startPitch -> endPitch (dùng startMusicPitch cho music)
-        return startMusicPitch + (endPitch - startMusicPitch) * k;
-    }
-
-    void start(float dur)
+    void applyPitch()
     {
         auto* fmod = FMODAudioEngine::sharedEngine();
         if (!fmod) return;
 
-        // Lưu pitch hiện tại trước khi modify
+        float t = std::min(time / duration, 1.0f);
+        float k = easeOut(t);
+
+        float musicPitch = startMusicPitch + (endPitch - startMusicPitch) * k;
+        float sfxPitch   = startSfxPitch   + (endPitch - startSfxPitch)   * k;
+
+        fmod->m_backgroundMusicChannel->setPitch(musicPitch);
+        fmod->m_globalChannel->setPitch(sfxPitch);
+    }
+
+    void start(float dur)
+    {
+        if (active) return; // đang chạy rồi thì không restart
+
+        auto* fmod = FMODAudioEngine::sharedEngine();
+        if (!fmod) return;
+
+        // Lưu pitch gốc hiện tại
         fmod->m_backgroundMusicChannel->getPitch(&startMusicPitch);
         fmod->m_globalChannel->getPitch(&startSfxPitch);
 
@@ -44,7 +52,6 @@ namespace OsuFail
 
     void reset()
     {
-        if (!active) return; // tránh reset không cần thiết
         active = false;
         time   = 0.0f;
 
@@ -56,6 +63,9 @@ namespace OsuFail
     }
 }
 
+// =============================================
+// TICK effect trong update của PlayLayer
+// =============================================
 class $modify(MyPlayLayer, PlayLayer)
 {
     void update(float dt)
@@ -65,25 +75,11 @@ class $modify(MyPlayLayer, PlayLayer)
         if (!OsuFail::active) return;
 
         OsuFail::time += dt;
-
-        auto* fmod = FMODAudioEngine::sharedEngine();
-        if (!fmod) return;
-
-        float musicPitch = OsuFail::getPitch();
-
-        // SFX pitch cũng kéo xuống tương tự
-        float sfxRatio = OsuFail::startSfxPitch / 
-                         (OsuFail::startMusicPitch > 0.f ? OsuFail::startMusicPitch : 1.f);
-        float sfxPitch = musicPitch * sfxRatio;
-
-        fmod->m_backgroundMusicChannel->setPitch(musicPitch);
-        fmod->m_globalChannel->setPitch(sfxPitch);
+        OsuFail::applyPitch();
 
         if (OsuFail::time >= OsuFail::duration)
-        {
             OsuFail::active = false;
-            // KHÔNG reset pitch ở đây — giữ nguyên pitch thấp cho đến khi respawn
-        }
+        // pitch giữ thấp cho đến khi resetLevel/onQuit
     }
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun)
@@ -105,15 +101,25 @@ class $modify(MyPlayLayer, PlayLayer)
     }
 };
 
-class $modify(MyPlayerObject, PlayerObject)
+// =============================================
+// TRIGGER đúng chỗ: playerDied trên GJBaseGameLayer
+// =============================================
+class $modify(MyGJBaseGameLayer, GJBaseGameLayer)
 {
-    void playDeathEffect()
+    void playerDied(PlayerObject* player, bool p1, bool p2)
     {
-        PlayerObject::playDeathEffect();
+        GJBaseGameLayer::playerDied(player, p1, p2);
+
+        // Chỉ trigger cho player thật, không phải dual-mode dummy
+        if (!PlayLayer::get()) return;
+        if (!player->isVanillaPlayer()) return;
+
+        // Chỉ trigger 1 lần dù player1 hay player2 chết
+        if (OsuFail::active) return;
 
         float dur = 1.0f;
         if (auto* mod = Mod::get())
-            dur = mod->getSettingValue<double>("fade-speed");
+            dur = static_cast<float>(mod->getSettingValue<double>("fade-speed"));
 
         OsuFail::start(dur);
     }
