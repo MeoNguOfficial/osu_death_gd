@@ -1,13 +1,12 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
-#include <Geode/modify/GJBaseGameLayer.hpp>
 
 using namespace geode::prelude;
 
 namespace OsuFail
 {
-    static bool active   = false;
-    static float time    = 0.0f;
+    static bool active    = false;
+    static float time     = 0.0f;
     static float duration = 1.0f;
 
     static float startMusicPitch = 1.0f;
@@ -27,21 +26,17 @@ namespace OsuFail
         float t = std::min(time / duration, 1.0f);
         float k = easeOut(t);
 
-        float musicPitch = startMusicPitch + (endPitch - startMusicPitch) * k;
-        float sfxPitch   = startSfxPitch   + (endPitch - startSfxPitch)   * k;
-
-        fmod->m_backgroundMusicChannel->setPitch(musicPitch);
-        fmod->m_globalChannel->setPitch(sfxPitch);
+        fmod->m_backgroundMusicChannel->setPitch(startMusicPitch + (endPitch - startMusicPitch) * k);
+        fmod->m_globalChannel->setPitch(startSfxPitch + (endPitch - startSfxPitch) * k);
     }
 
     void start(float dur)
     {
-        if (active) return; // đang chạy rồi thì không restart
+        if (active) return;
 
         auto* fmod = FMODAudioEngine::sharedEngine();
         if (!fmod) return;
 
-        // Lưu pitch gốc hiện tại
         fmod->m_backgroundMusicChannel->getPitch(&startMusicPitch);
         fmod->m_globalChannel->getPitch(&startSfxPitch);
 
@@ -63,9 +58,6 @@ namespace OsuFail
     }
 }
 
-// =============================================
-// TICK effect trong update của PlayLayer
-// =============================================
 class $modify(MyPlayLayer, PlayLayer)
 {
     void update(float dt)
@@ -79,7 +71,24 @@ class $modify(MyPlayLayer, PlayLayer)
 
         if (OsuFail::time >= OsuFail::duration)
             OsuFail::active = false;
-        // pitch giữ thấp cho đến khi resetLevel/onQuit
+    }
+
+    // ✅ Hook đúng — có bind trên Windows (win 0x3b39d0)
+    void destroyPlayer(PlayerObject* player, GameObject* object)
+    {
+        PlayLayer::destroyPlayer(player, object);
+
+        // Chỉ trigger cho player chính, tránh dual-mode player2 không quan trọng
+        if (player != m_player1 && player != m_player2) return;
+
+        // Không trigger lại nếu đang chạy
+        if (OsuFail::active) return;
+
+        float dur = 1.0f;
+        if (auto* mod = Mod::get())
+            dur = static_cast<float>(mod->getSettingValue<double>("fade-speed"));
+
+        OsuFail::start(dur);
     }
 
     bool init(GJGameLevel* level, bool useReplay, bool dontRun)
@@ -98,29 +107,5 @@ class $modify(MyPlayLayer, PlayLayer)
     {
         OsuFail::reset();
         PlayLayer::onQuit();
-    }
-};
-
-// =============================================
-// TRIGGER đúng chỗ: playerDied trên GJBaseGameLayer
-// =============================================
-class $modify(MyGJBaseGameLayer, GJBaseGameLayer)
-{
-    void playerDied(PlayerObject* player, bool p1, bool p2)
-    {
-        GJBaseGameLayer::playerDied(player, p1, p2);
-
-        // Chỉ trigger cho player thật, không phải dual-mode dummy
-        if (!PlayLayer::get()) return;
-        if (!player->isVanillaPlayer()) return;
-
-        // Chỉ trigger 1 lần dù player1 hay player2 chết
-        if (OsuFail::active) return;
-
-        float dur = 1.0f;
-        if (auto* mod = Mod::get())
-            dur = static_cast<float>(mod->getSettingValue<double>("fade-speed"));
-
-        OsuFail::start(dur);
     }
 };
