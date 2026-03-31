@@ -1,111 +1,119 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
-#include <Geode/modify/FMODAudioEngine.hpp>
 
 using namespace geode::prelude;
 
-// =========================
-// STATE
-// =========================
-namespace OsuFail {
+namespace OsuFail
+{
     static bool active = false;
     static float time = 0.0f;
     static float duration = 1.0f;
 
-    static float startPitch = 1.0f;
-    static float endPitch = 0.3f;
+    static float startMusicPitch = 1.0f;
+    static float startSfxPitch   = 1.0f;
+    static float endPitch        = 0.3f;
 
-    // easing (smooth như osu)
-    float easeOut(float t) {
+    float easeOut(float t)
+    {
         return 1.0f - powf(1.0f - t, 3.0f);
     }
 
-    float getPitch() {
+    float getPitch()
+    {
         float t = time / duration;
         if (t > 1.0f) t = 1.0f;
-
         float k = easeOut(t);
-        return startPitch + (endPitch - startPitch) * k;
+        // startPitch -> endPitch (dùng startMusicPitch cho music)
+        return startMusicPitch + (endPitch - startMusicPitch) * k;
     }
 
-    void start(float dur) {
-        active = true;
-        time = 0.0f;
-        duration = dur > 0.05f ? dur : 1.0f;
+    void start(float dur)
+    {
+        auto* fmod = FMODAudioEngine::sharedEngine();
+        if (!fmod) return;
+
+        // Lưu pitch hiện tại trước khi modify
+        fmod->m_backgroundMusicChannel->getPitch(&startMusicPitch);
+        fmod->m_globalChannel->getPitch(&startSfxPitch);
+
+        active   = true;
+        time     = 0.0f;
+        duration = (dur > 0.05f) ? dur : 1.0f;
     }
 
-    void reset() {
+    void reset()
+    {
+        if (!active) return; // tránh reset không cần thiết
         active = false;
-        time = 0.0f;
+        time   = 0.0f;
 
-        // reset pitch global
-        if (auto fmod = FMODAudioEngine::sharedEngine()) {
-            if (fmod->m_system) {
-                FMOD::ChannelGroup* master = nullptr;
-                fmod->m_system->getMasterChannelGroup(&master);
-                if (master) master->setPitch(1.0f);
-            }
-        }
+        auto* fmod = FMODAudioEngine::sharedEngine();
+        if (!fmod) return;
+
+        fmod->m_backgroundMusicChannel->setPitch(1.0f);
+        fmod->m_globalChannel->setPitch(1.0f);
     }
 }
 
-// =========================
-// APPLY EFFECT (SAFE LAYER)
-// =========================
-class $modify(MyPlayLayer, PlayLayer) {
-
-    void update(float dt) {
+class $modify(MyPlayLayer, PlayLayer)
+{
+    void update(float dt)
+    {
         PlayLayer::update(dt);
 
         if (!OsuFail::active) return;
 
         OsuFail::time += dt;
 
-        auto fmod = FMODAudioEngine::sharedEngine();
-        if (!fmod || !fmod->m_system) return;
+        auto* fmod = FMODAudioEngine::sharedEngine();
+        if (!fmod) return;
 
-        FMOD::ChannelGroup* master = nullptr;
-        fmod->m_system->getMasterChannelGroup(&master);
-        if (!master) return;
+        float musicPitch = OsuFail::getPitch();
 
-        float pitch = OsuFail::getPitch();
-        master->setPitch(pitch);
+        // SFX pitch cũng kéo xuống tương tự
+        float sfxRatio = OsuFail::startSfxPitch / 
+                         (OsuFail::startMusicPitch > 0.f ? OsuFail::startMusicPitch : 1.f);
+        float sfxPitch = musicPitch * sfxRatio;
 
-        // stop effect khi xong
-        if (OsuFail::time >= OsuFail::duration) {
+        fmod->m_backgroundMusicChannel->setPitch(musicPitch);
+        fmod->m_globalChannel->setPitch(sfxPitch);
+
+        if (OsuFail::time >= OsuFail::duration)
+        {
             OsuFail::active = false;
+            // KHÔNG reset pitch ở đây — giữ nguyên pitch thấp cho đến khi respawn
         }
     }
 
-    bool init(GJGameLevel* level, bool useReplay, bool dontRun) {
+    bool init(GJGameLevel* level, bool useReplay, bool dontRun)
+    {
         OsuFail::reset();
         return PlayLayer::init(level, useReplay, dontRun);
     }
 
-    void resetLevel() {
+    void resetLevel()
+    {
         OsuFail::reset();
         PlayLayer::resetLevel();
     }
 
-    void onQuit() {
+    void onQuit()
+    {
         OsuFail::reset();
         PlayLayer::onQuit();
     }
 };
 
-// =========================
-// TRIGGER (PLAYER DIE)
-// =========================
-class $modify(MyPlayerObject, PlayerObject) {
-    void playDeathEffect() {
+class $modify(MyPlayerObject, PlayerObject)
+{
+    void playDeathEffect()
+    {
         PlayerObject::playDeathEffect();
 
-        // trigger fail effect
         float dur = 1.0f;
-        if (auto mod = Mod::get()) {
+        if (auto* mod = Mod::get())
             dur = mod->getSettingValue<double>("fade-speed");
-        }
 
         OsuFail::start(dur);
     }
