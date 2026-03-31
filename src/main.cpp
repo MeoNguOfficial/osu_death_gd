@@ -5,16 +5,12 @@
 
 using namespace geode::prelude;
 
-// =========================
-// GLOBAL STATE
-// =========================
+// Global state
 static float s_targetPitch = 1.0f;
 static bool s_isDeadEffect = false;
 static float s_duration = 1.0f;
 
-// =========================
-// FMOD HOOK
-// =========================
+// Hook FMODAudioEngine
 class $modify(MyFMODAudioEngine, FMODAudioEngine)
 {
     void update(float dt)
@@ -24,46 +20,31 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine)
         if (!s_isDeadEffect)
             return;
 
-        // =========================
-        // 1. SFX (master group)
-        // =========================
+        // Master group (SFX)
         if (m_system)
         {
             FMOD::ChannelGroup* masterGroup = nullptr;
             m_system->getMasterChannelGroup(&masterGroup);
-
             if (masterGroup)
-            {
                 masterGroup->setPitch(s_targetPitch);
-            }
         }
 
-        // =========================
-        // 2. MUSIC (CRITICAL)
-        // =========================
+        // Music channel (ChannelGroup)
         if (m_backgroundMusicChannel)
         {
-            // 🔥 Double set để chống override
+            // Double set to prevent override
             m_backgroundMusicChannel->setPitch(s_targetPitch);
             m_backgroundMusicChannel->setPitch(s_targetPitch);
-
-            // Đảm bảo không bị pause
+            
             bool isPaused = false;
             m_backgroundMusicChannel->getPaused(&isPaused);
-
             if (isPaused && s_targetPitch > 0.05f)
-            {
                 m_backgroundMusicChannel->setPaused(false);
-            }
         }
 
-        // =========================
-        // 3. GLOBAL CHANNEL (backup SFX)
-        // =========================
+        // Global channel (SFX)
         if (m_globalChannel)
-        {
             m_globalChannel->setPitch(s_targetPitch);
-        }
     }
 
     void stopAllMusic(bool p0)
@@ -74,20 +55,17 @@ class $modify(MyFMODAudioEngine, FMODAudioEngine)
     }
 };
 
-// =========================
-// PLAYLAYER HOOK
-// =========================
+// Hook PlayLayer
 class $modify(MyPlayLayer, PlayLayer)
 {
     bool init(GJGameLevel* level, bool useReplay, bool dontRun)
     {
         if (!PlayLayer::init(level, useReplay, dontRun))
             return false;
-
+        
         s_isDeadEffect = false;
         s_targetPitch = 1.0f;
         this->unschedule(schedule_selector(MyPlayLayer::updateOsuFade));
-        
         return true;
     }
 
@@ -103,7 +81,6 @@ class $modify(MyPlayLayer, PlayLayer)
         s_duration = (speedValue <= 0.05f) ? 1.0f : static_cast<float>(speedValue);
 
         this->schedule(schedule_selector(MyPlayLayer::updateOsuFade));
-
         log::info("Osu Death Effect started - Duration: {}", s_duration);
     }
 
@@ -115,7 +92,6 @@ class $modify(MyPlayLayer, PlayLayer)
             return;
         }
 
-        // Exponential fade (mượt hơn linear)
         float factor = dt / s_duration;
         s_targetPitch -= s_targetPitch * factor;
 
@@ -127,9 +103,7 @@ class $modify(MyPlayLayer, PlayLayer)
 
             auto fmod = FMODAudioEngine::sharedEngine();
             if (fmod && fmod->m_backgroundMusicChannel)
-            {
                 fmod->m_backgroundMusicChannel->setPaused(true);
-            }
 
             log::info("Osu Death Effect finished");
         }
@@ -149,21 +123,15 @@ class $modify(MyPlayLayer, PlayLayer)
                 FMOD::ChannelGroup* masterGroup = nullptr;
                 fmod->m_system->getMasterChannelGroup(&masterGroup);
                 if (masterGroup)
-                {
                     masterGroup->setPitch(1.0f);
-                }
             }
-
             if (fmod->m_backgroundMusicChannel)
             {
                 fmod->m_backgroundMusicChannel->setPitch(1.0f);
                 fmod->m_backgroundMusicChannel->setPaused(false);
             }
-
             if (fmod->m_globalChannel)
-            {
                 fmod->m_globalChannel->setPitch(1.0f);
-            }
         }
 
         PlayLayer::resetLevel();
@@ -183,39 +151,28 @@ class $modify(MyPlayLayer, PlayLayer)
                 FMOD::ChannelGroup* masterGroup = nullptr;
                 fmod->m_system->getMasterChannelGroup(&masterGroup);
                 if (masterGroup)
-                {
                     masterGroup->setPitch(1.0f);
-                }
             }
-
             if (fmod->m_backgroundMusicChannel)
             {
                 fmod->m_backgroundMusicChannel->setPitch(1.0f);
                 fmod->m_backgroundMusicChannel->setPaused(false);
             }
-
             if (fmod->m_globalChannel)
-            {
                 fmod->m_globalChannel->setPitch(1.0f);
-            }
         }
 
         PlayLayer::onQuit();
     }
 };
 
-// =========================
-// PLAYER HOOK
-// =========================
+// Hook PlayerObject
 class $modify(MyPlayerObject, PlayerObject)
 {
     void playDeathEffect()
     {
         PlayerObject::playDeathEffect();
-
         if (auto pl = PlayLayer::get())
-        {
             static_cast<MyPlayLayer*>(pl)->onPlayerReallyDied();
-        }
     }
 };
